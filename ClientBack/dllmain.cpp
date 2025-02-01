@@ -1,4 +1,3 @@
-// dllmain.cpp : Defines the entry point for the DLL application.
 #include "pch.h"
 
 // Linking the library needed for network communication
@@ -56,22 +55,29 @@ static SOCKET CreateAndConnectSocket(PCWSTR serverIp, int port)
     return clientSocket;
 }
 
-static int SendData(SOCKET clientSocket, const std::wstring& message)
-{
-    std::string narrowMessage(message.begin(), message.end());
-    return send(clientSocket, narrowMessage.c_str(), static_cast<int>(narrowMessage.size()), 0);
-}
-
-static int ReceiveData(SOCKET clientSocket, char* buffer, int bufferSize)
-{
-    memset(buffer, 0, bufferSize);
-    return recv(clientSocket, buffer, bufferSize, 0);
-}
-
 static void Cleanup(SOCKET clientSocket)
 {
     closesocket(clientSocket);
     WSACleanup();
+}
+
+// Send data
+static bool SendData(SOCKET clientSocket, const std::wstring& message)
+{
+	std::string narrowCommand(message.begin(), message.end());
+    if (send(clientSocket, narrowCommand.c_str(), static_cast<int>(narrowCommand.size() * sizeof(char)), 0) == SOCKET_ERROR)
+    {
+        std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
+        Cleanup(clientSocket);
+        return false;
+    }
+	return true;
+}
+
+// Receive data
+static int ReceiveData(SOCKET clientSocket, std::vector<char>& buffer)
+{
+    return recv(clientSocket, buffer.data(), sizeof(buffer), 0);
 }
 
 extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* serverIp, int port, const WCHAR* command)
@@ -92,8 +98,8 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
     if (commandStr.compare(0, 4, L"PUT ") == 0)
     {
         std::wstring filename = commandStr.substr(4);
-
         std::ifstream file(filename, std::ios::binary);
+
         if (!file.is_open())
         {
             std::wcerr << "Failed to open file: " << filename << std::endl;
@@ -101,47 +107,78 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
             return;
         }
 
-		std::string narrowCommand(commandStr.begin(), commandStr.end());
-        if (send(clientSocket, narrowCommand.c_str(), static_cast<int>(narrowCommand.size() * sizeof(char)), 0) == SOCKET_ERROR)
+        if (SendData(clientSocket, command))
         {
-            std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
-            file.close();
-            Cleanup(clientSocket);
-            return;
-        }
-
-		std::vector<char> responceBuffer(1024);
-        int responceBytes = recv(clientSocket, responceBuffer.data(), sizeof(responceBuffer), 0);
-		std::string responce(responceBuffer.data(), responceBytes);
-		std::cout << "Received responce: " << responce << std::endl;
-		if (responceBytes <= 0 || responce.compare("OK") != 0)
-        {
-            std::cerr << "Failed to receive responce from server" << std::endl;
-            file.close();
-            Cleanup(clientSocket);
-            return;
-        }
-
-        // Send the file content
-        std::vector<char> fileBuffer(1024);
-        while (file.read(fileBuffer.data(), fileBuffer.size()) || file.gcount() > 0)
-        {
-            std::streamsize bytesToSend = file.gcount();
-            if (send(clientSocket, fileBuffer.data(), static_cast<int>(bytesToSend), 0) == SOCKET_ERROR)
+			std::vector<char> responceBuffer(1024);
+			int responceBytes = ReceiveData(clientSocket, responceBuffer);
+            std::string responce(responceBuffer.data(), responceBytes);
+            std::cout << "Received responce: " << responce << std::endl;
+            if (responceBytes <= 0 || responce.compare("OK") != 0)
             {
-                std::cerr << "File data send failed with error: " << WSAGetLastError() << std::endl;
+                std::cerr << "Failed to receive responce from server" << std::endl;
                 file.close();
                 Cleanup(clientSocket);
                 return;
             }
+
+            std::vector<char> fileBuffer(1024);
+            while (file.read(fileBuffer.data(), fileBuffer.size()) || file.gcount() > 0)
+            {
+                std::streamsize bytesToSend = file.gcount();
+				if (!SendData(clientSocket, std::wstring(fileBuffer.begin(), fileBuffer.begin() + bytesToSend)))
+                {
+                    std::cerr << "File data send failed with error: " << WSAGetLastError() << std::endl;
+                    file.close();
+                    Cleanup(clientSocket);
+                    return;
+                }
+            }
+            std::cout << "File upload completed" << std::endl;
+        }
+		file.close();
+    }
+    else if (commandStr.compare(0, 4, L"GET ") == 0)
+    {
+
+        std::wstring filename = commandStr.substr(4);
+        std::ofstream file(filename, std::ios::binary);
+
+        std::string narrowCommand(commandStr.begin(), commandStr.end());
+
+        if (!file.is_open())
+        {
+            std::wcerr << "Failed to open file: " << filename << std::endl;
+            Cleanup(clientSocket);
+            return;
+        }
+
+		if (SendData(clientSocket, command))
+        {
+            int totalBytesReceived = 0;
+            std::vector<char> fileBuffer(1024);
+			int bytesReceived = 0;
+            while ((bytesReceived = ReceiveData(clientSocket, fileBuffer)) > 0)
+            {
+                file.write(fileBuffer.data(), bytesReceived);
+                totalBytesReceived += bytesReceived;
+            }
+
+            if (bytesReceived == SOCKET_ERROR)
+                std::cerr << "Receive failed with error: " << WSAGetLastError() << std::endl;
+
+            std::wcout << "File '" << filename << "' received (" << totalBytesReceived << " bytes)" << std::endl;
         }
         file.close();
-        std::cout << "File upload completed" << std::endl;
-
     }
+	else if (commandStr.compare(0, 5, L"QUIT") == 0)
+	{
+		if (!SendData(clientSocket, command))
+			std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
+		std::cout << "Quitting the server" << std::endl;
+	}
     else
     {
-        if (SendData(clientSocket, command) == SOCKET_ERROR)
+        if (!SendData(clientSocket, command))
             std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
     }
 

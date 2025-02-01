@@ -11,8 +11,33 @@ class Program
     {
         string serverIp = "127.0.0.1";
         int port = 12345;
-        string command = "PUT test.txt"; 
+        string command;
 
-        HandleClientCommunication(serverIp, port, command);
+        do
+        {
+            command = GetCommand();
+            HandleClientCommunication(serverIp, port, command);
+
+        } while (command != "QUIT");
+    }
+
+    static string GetCommand()
+    {
+        while (true)
+        {
+            Console.WriteLine("Enter command (GET <filename>, LIST, PUT <filename>, DELETE <filename>, INFO <filename>, QUIT):");
+            string input = Console.ReadLine() ?? "null";
+            string[] parts = input.Split(' ', 2, StringSplitOptions.TrimEntries);
+
+            string inputCommand = parts[0].ToUpper();
+            if (parts.Length == 1 && (inputCommand == "LIST" || inputCommand == "QUIT"))
+                return $"{inputCommand}";
+
+            else if (parts.Length == 2 && (inputCommand == "GET" || inputCommand == "PUT" || inputCommand == "DELETE" || inputCommand == "INFO"))
+                return $"{inputCommand} {parts[1]}";
+
+            else
+                Console.WriteLine("Invalid command. Please try again.");
+        }
     }
 }
