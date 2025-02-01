@@ -4,18 +4,15 @@ namespace Client;
 
 class Program
 {
+    [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    public static extern void HandleClientCommunication(string serverIp, int port, string command);
+
     static void Main()
     {
         string serverIp = "127.0.0.1";
         int port = 12345;
-        string command = "Hello";
+        string command = "PUT test.txt"; 
 
-        ClientBackInterop.HandleClientCommunication(serverIp, port, command);
+        HandleClientCommunication(serverIp, port, command);
     }
-}
-
-static class ClientBackInterop
-{
-    [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-    public static extern void HandleClientCommunication(string serverIp, int port, string command);
 }
