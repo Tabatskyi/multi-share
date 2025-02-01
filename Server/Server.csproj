@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ClientBack\ClientBack.vcxproj" />
+    <ProjectReference Include="..\ServerBack\ServerBack.vcxproj" />
   </ItemGroup>
 
 </Project>
