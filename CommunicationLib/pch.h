@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <algorithm>
 #include <WinSock2.h> 
 #include <filesystem>
 

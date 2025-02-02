@@ -88,12 +88,10 @@ int main()
            return 1;  
        }  
 
-       // Receive data from the client  
-       std::vector<char> buffer(1024);  
-	   int bytesReceived = ReceiveData(clientSocket, buffer);
-       if (bytesReceived > 0)  
+       // Receive data from the client   
+	   std::string command = ReceiveData(clientSocket);
+       if (command.size() > 0)
        {  
-           std::string command(buffer.data(), bytesReceived);  
            std::cout << "Received command: " << command << std::endl;  
 
            if (command.compare(0, 4, "PUT ") == 0)  
@@ -144,8 +142,7 @@ int main()
 			   {
 				   long long fileSize = std::filesystem::file_size(file);
 				   std::filesystem::file_time_type lastWriteTime = std::filesystem::last_write_time(file);
-				   std::cout << std::format("File: {}\nSize: {} bytes\nLast modified: {}", file.filename().string(), fileSize, lastWriteTime) << std::endl;
-				   std::string fileInfo = std::format("Size: {}b\nLast modified: {}", fileSize, lastWriteTime);
+				   std::string fileInfo = std::format("Size: {}bytes\nLast modified: {}", fileSize, lastWriteTime);
 				   SendData(clientSocket, fileInfo);
 			   }
 			   else
@@ -158,7 +155,6 @@ int main()
            else  
            {  
                std::string response = "Unknown command.";  
-               send(clientSocket, response.c_str(), static_cast<int>(response.size()), 0);  
            }  
        }  
        else  
