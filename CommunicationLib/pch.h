@@ -12,6 +12,6 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
-#include <Ws2tcpip.h>
+#include <WinSock2.h> 
 
 #endif //PCH_H
