@@ -4,15 +4,15 @@
 #pragma comment(lib, "ws2_32.lib")  
 
 // Initialize Winsock
-static int InitializeWinsock()
+static bool InitializeWinsock()
 {
 	WSADATA wsaData;
 	if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0)
 	{
 		std::cerr << "WSAStartup failed" << std::endl;
-		return 1;
+		return false;
 	}
-	return 0;
+	return true;
 }
 
 // Send data

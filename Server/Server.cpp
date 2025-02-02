@@ -1,6 +1,8 @@
 #include <iostream>   
 #include <fstream>  
 #include <vector>  
+#include <chrono>
+#include <filesystem>
 #include "CommunicationLib.cpp"
 
 #pragma comment(lib, "CommunicationLib.lib")  
@@ -46,9 +48,17 @@ static int Listen(SOCKET serverSocket)
 	return 0;
 }
 
+static std::string ListFiles(std::filesystem::path path)
+{
+	std::string fileList;
+    for (const auto& entry : std::filesystem::directory_iterator(path))
+		fileList += entry.path().filename().string() + "\n";
+	return fileList;
+}
+
 int main()  
 {  
-	if (InitializeWinsock() != 0)
+	if (!InitializeWinsock())
 		return 1;
 
    int port = 12345;  
@@ -59,6 +69,10 @@ int main()
 
    if (Listen(serverSocket) != 0)
 	   return 1;
+
+   std::filesystem::path serverPath = std::filesystem::current_path();
+   std::filesystem::path serverFiles = serverPath / "ServerFiles";
+   std::filesystem::create_directory(serverFiles);
 
    std::cout << "Server listening on port " << port << std::endl;  
 
@@ -76,7 +90,7 @@ int main()
 
        // Receive data from the client  
        std::vector<char> buffer(1024);  
-       int bytesReceived = recv(clientSocket, buffer.data(), static_cast<int>(buffer.size()) - 1, 0);  
+	   int bytesReceived = ReceiveData(clientSocket, buffer);
        if (bytesReceived > 0)  
        {  
            std::string command(buffer.data(), bytesReceived);  
@@ -84,12 +98,14 @@ int main()
 
            if (command.compare(0, 4, "PUT ") == 0)  
            {  
-			   if (WriteFileFromStream(command.substr(4), clientSocket))
+			   std::string filePath = serverFiles.string() + "\\" + command.substr(4);
+			   if (WriteFileFromStream(filePath, clientSocket))
 				   std::cout << "File download completed" << std::endl;
            }
            else if (command.compare(0, 4, "GET ") == 0)
            {
-			   if (SendFileToStream(command.substr(4), clientSocket))
+			   std::string filePath = serverFiles.string() + "\\" + command.substr(4);
+			   if (SendFileToStream(filePath, clientSocket))
 				   std::cout << "File upload completed" << std::endl;
            }
            else if (command.compare(0, 5, "QUIT") == 0)  
@@ -100,6 +116,45 @@ int main()
                WSACleanup();
 			   return 0;
            }  
+		   else if (command.compare(0, 4, "LIST") == 0)
+		   {
+			   std::string fileList = ListFiles(serverFiles);
+			   SendData(clientSocket, fileList);
+		   }
+		   else if (command.compare(0, 7, "DELETE ") == 0)
+		   {
+			   std::string filePath = serverFiles.string() + "\\" + command.substr(7);
+               if (std::filesystem::remove(filePath))
+               {
+                   std::cout << "File '" << filePath << "' deleted" << std::endl;
+				   std::string response = "OK";
+				   SendData(clientSocket, response);
+               }
+               else
+               {
+                   std::cerr << "Failed to delete file '" << filePath << "'" << std::endl;
+				   std::string response = "ERROR";
+				   SendData(clientSocket, response);
+               }
+		   }
+		   else if (command.compare(0, 5, "INFO ") == 0)
+		   {
+               std::filesystem::path file = serverFiles / command.substr(5);
+			   if (std::filesystem::exists(file))
+			   {
+				   long long fileSize = std::filesystem::file_size(file);
+				   std::filesystem::file_time_type lastWriteTime = std::filesystem::last_write_time(file);
+				   std::cout << std::format("File: {}\nSize: {} bytes\nLast modified: {}", file.filename().string(), fileSize, lastWriteTime) << std::endl;
+				   std::string fileInfo = std::format("Size: {}b\nLast modified: {}", fileSize, lastWriteTime);
+				   SendData(clientSocket, fileInfo);
+			   }
+			   else
+			   {
+				   std::cerr << "File '" << file << "' not found" << std::endl;
+				   std::string response = "File not found";
+				   SendData(clientSocket, response);
+			   }
+		   }
            else  
            {  
                std::string response = "Unknown command.";  

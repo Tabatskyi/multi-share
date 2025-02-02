@@ -36,6 +36,7 @@ class Client
             else if (parts.Length == 2 && (inputCommand == "GET" || inputCommand == "PUT" || inputCommand == "DELETE" || inputCommand == "INFO"))
                 return $"{inputCommand} {parts[1]}";
 
+
             else
                 Console.WriteLine("Invalid command. Please try again.");
         }

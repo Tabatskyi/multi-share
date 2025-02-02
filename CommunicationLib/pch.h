@@ -13,5 +13,6 @@
 #include <fstream>
 #include <vector>
 #include <WinSock2.h> 
+#include <filesystem>
 
 #endif //PCH_H
