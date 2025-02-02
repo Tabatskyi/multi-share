@@ -97,19 +97,24 @@ int main()
            if (command.compare(0, 4, "PUT ") == 0)  
            {  
 			   std::string filePath = serverFiles.string() + "\\" + command.substr(4);
-			   if (WriteFileFromStream(filePath, clientSocket))
-				   std::cout << "File download completed" << std::endl;
+               if (WriteFileFromStream(filePath, clientSocket))
+               {
+                   std::cout << "File download completed" << std::endl;
+				   SendData(clientSocket, "OK");
+               }
            }
            else if (command.compare(0, 4, "GET ") == 0)
            {
 			   std::string filePath = serverFiles.string() + "\\" + command.substr(4);
 			   if (SendFileToStream(filePath, clientSocket))
 				   std::cout << "File upload completed" << std::endl;
+
+			   if (CheckResponse(clientSocket))
+				   std::cout << "File delivered" << std::endl;
            }
            else if (command.compare(0, 5, "QUIT") == 0)  
            {  
                std::cout << "Server shutting down." << std::endl;
-               // Clean up server socket  
                closesocket(clientSocket);  
                WSACleanup();
 			   return 0;
@@ -125,13 +130,12 @@ int main()
                if (std::filesystem::remove(filePath))
                {
                    std::cout << "File '" << filePath << "' deleted" << std::endl;
-				   std::string response = "OK";
-				   SendData(clientSocket, response);
+				   SendData(clientSocket, "OK");
                }
                else
                {
-                   std::cerr << "Failed to delete file '" << filePath << "'" << std::endl;
-				   std::string response = "ERROR";
+				   std::string response = std::format("ERROR: Failed to delete file: '{}'", filePath);
+                   std::cerr << response << std::endl;
 				   SendData(clientSocket, response);
                }
 		   }

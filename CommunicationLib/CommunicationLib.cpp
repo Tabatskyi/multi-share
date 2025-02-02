@@ -82,12 +82,8 @@ static bool CheckResponse(SOCKET socket)
 {
 	std::string responce = ReceiveData(socket);
     std::cout << "Received responce: " << responce << std::endl;
-    if (responce.compare("OK") != 0)
-    {
-        std::cerr << "Failed to receive responce from server" << std::endl;
-        return false;
-    }
-	return true;
+
+    return responce.compare("OK") == 0;
 }
 
 static bool SendFileToStream(const std::string& filename, SOCKET socket)
@@ -95,8 +91,9 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
     std::ifstream file(filename, std::ios::binary | std::ios::ate);
     if (!file.is_open())
     {
-        std::cerr << "Failed to open file: " << filename << std::endl;
-        SendData(socket, "ERROR");
+		std::string response = std::format("ERROR: Failed to open file: {}", filename);
+        std::cerr << response << std::endl;
+        SendData(socket, response);
         return false;
     }
 
@@ -156,18 +153,15 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
 
 static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
 {
+    if (!CheckResponse(socket))
+        return false;
+
     std::ofstream file(filename, std::ios::binary);
     if (!file.is_open())
     {
-        std::cerr << "Failed to open file for writing: " << filename << std::endl;
-        SendData(socket, "ERROR");
-        return false;
-    }
-
-    if (!CheckResponse(socket))
-    {
-        std::cerr << "Failed to receive response" << std::endl;
-        file.close();
+		std::string response = std::format("ERROR: Failed to create file: {}", filename);
+		std::cerr << response << std::endl;
+        SendData(socket, response);
         return false;
     }
 

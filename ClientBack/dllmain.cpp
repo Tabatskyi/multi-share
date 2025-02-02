@@ -74,6 +74,8 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
         std::string filename = commandStr.substr(4);
 		if (SendFileToStream(filename, clientSocket))
 			std::cout << "File '" << filename << "' sent" << std::endl;
+		if (CheckResponse(clientSocket))
+			std::cout << "File delivered" << std::endl;
     }
     else if (commandStr.compare(0, 4, "GET ") == 0)
     {
@@ -83,6 +85,8 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
         std::string filename = commandStr.substr(4);
 		if (!WriteFileFromStream(filename, clientSocket))
 			std::cerr << "Failed to receive file" << std::endl;
+
+		SendData(clientSocket, "OK");
     }
 	else if (commandStr.compare(0, 5, "QUIT") == 0)
 	{
