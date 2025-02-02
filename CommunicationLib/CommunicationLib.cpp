@@ -18,7 +18,7 @@ static bool InitializeWinsock()
 // Send data
 static bool SendData(SOCKET socket, const std::string& message)
 {
-    size_t messageSize = static_cast<size_t>(message.size());
+    size_t messageSize = message.size();
     if (send(socket, reinterpret_cast<char*>(&messageSize), sizeof(messageSize), 0) == SOCKET_ERROR)
     {
         std::cerr << "Failed to send message size: " << WSAGetLastError() << std::endl;

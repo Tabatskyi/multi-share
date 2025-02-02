@@ -104,7 +104,7 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
         std::string fileList = ReceiveData(clientSocket);
         if (fileList.size() > 0)
         {
-            std::cout << "Received file list: " << fileList << std::endl;
+            std::cout << "Received files list:\n" << fileList;
         }
 	}
     else if (commandStr.compare(0, 6, "DELETE") == 0)
