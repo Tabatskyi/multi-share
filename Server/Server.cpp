@@ -146,7 +146,7 @@ int main()
 			   {
 				   long long fileSize = std::filesystem::file_size(file);
 				   std::filesystem::file_time_type lastWriteTime = std::filesystem::last_write_time(file);
-				   std::string fileInfo = std::format("Size: {}bytes\nLast modified: {}", fileSize, lastWriteTime);
+				   std::string fileInfo = std::format("Size: {} bytes\nLast modified: {}", fileSize, lastWriteTime);
 				   SendData(clientSocket, fileInfo);
 			   }
 			   else
