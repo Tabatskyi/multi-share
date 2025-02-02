@@ -2,7 +2,7 @@
 
 namespace Client;
 
-class Program
+class Client
 {
     [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     public static extern void HandleClientCommunication(string serverIp, int port, string command);
