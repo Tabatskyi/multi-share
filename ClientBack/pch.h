@@ -12,6 +12,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <sstream>
 #include <Ws2tcpip.h>
 
 #endif //PCH_H

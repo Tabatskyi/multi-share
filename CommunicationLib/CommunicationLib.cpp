@@ -97,8 +97,7 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
         return false;
     }
 
-    std::string response = "OK";
-    if (SendData(socket, response))
+    if (SendData(socket, "OK"))
     {
         std::cout << "Sending file: " << filename << std::endl;
     }
@@ -156,7 +155,7 @@ static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
     if (!CheckResponse(socket))
         return false;
 
-    std::ofstream file(filename, std::ios::binary);
+    std::ofstream file(filename, std::ios::binary | std::ios::ate);
     if (!file.is_open())
     {
 		std::string response = std::format("ERROR: Failed to create file: {}", filename);

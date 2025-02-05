@@ -24,7 +24,6 @@ static SOCKET CreateAndConnectSocket(PCWSTR serverIp, int port)
     if (clientSocket == INVALID_SOCKET)
     {
         std::cerr << "Error creating socket: " << WSAGetLastError() << std::endl;
-        WSACleanup();
         return INVALID_SOCKET;
     }
 
@@ -37,7 +36,6 @@ static SOCKET CreateAndConnectSocket(PCWSTR serverIp, int port)
     {
         std::cerr << "Connect failed with error: " << WSAGetLastError() << std::endl;
         closesocket(clientSocket);
-        WSACleanup();
         return INVALID_SOCKET;
     }
 
@@ -47,10 +45,9 @@ static SOCKET CreateAndConnectSocket(PCWSTR serverIp, int port)
 static void Cleanup(SOCKET clientSocket)
 {
     closesocket(clientSocket);
-    WSACleanup();
 }
 
-extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* serverIp, int port, const WCHAR* command)
+extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* serverIp, int port, const WCHAR* message)
 {
     if (!InitializeWinsock())
         return;
@@ -59,22 +56,34 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
     if (clientSocket == INVALID_SOCKET)
     {
         std::cerr << "Failed to connect to server" << std::endl;
+        WSACleanup();
         return;
     }
 
-	std::wstring commandWStr(command);
-    std::string commandStr(commandWStr.begin(), commandWStr.end());
+    std::wstring messageWStr(message);
+    std::string messageStr(messageWStr.begin(), messageWStr.end());
 
-    if (commandStr.compare(0, 4, "PUT ") == 0)
+    if (!SendData(clientSocket, messageStr))
     {
-        if(!SendData(clientSocket, commandStr))
+        std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
+        Cleanup(clientSocket);
+        WSACleanup();
+        return;
+    }
+
+    std::istringstream iss(messageStr);
+    std::string command, clientName, filename;
+    iss >> command >> clientName >> filename;
+
+	if (command == "PUT")
+    {
+        if(!SendData(clientSocket, messageStr))
         {
             std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
             Cleanup(clientSocket);
             return;
         }
 
-        std::string filename = commandStr.substr(4);
         if (SendFileToStream(filename, clientSocket))
         {
             std::cout << "File '" << filename << "' sent" << std::endl;
@@ -86,16 +95,15 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
             std::cerr << "Failed to deliver file" << std::endl;
         }
     }
-    else if (commandStr.compare(0, 4, "GET ") == 0)
+	else if (command == "GET")
     {
-		if (!SendData(clientSocket, commandStr))
+		if (!SendData(clientSocket, messageStr))
         { 
 			std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
 			Cleanup(clientSocket);
 			return;
 		}
 
-        std::string filename = commandStr.substr(4);
 		if (!WriteFileFromStream(filename, clientSocket))
         { 
 			std::cerr << "Failed to receive file" << std::endl;
@@ -105,9 +113,9 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
 
 		SendData(clientSocket, "OK");
     }
-	else if (commandStr.compare(0, 5, "QUIT") == 0)
+	else if (command == "QUIT")
 	{
-        if (!SendData(clientSocket, commandStr))
+        if (!SendData(clientSocket, messageStr))
         {
             std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
             Cleanup(clientSocket);
@@ -116,9 +124,9 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
 
 		std::cout << "Quitting the server" << std::endl;
 	}
-	else if (commandStr.compare(0, 4, "LIST") == 0)
+	else if (command == "LIST")
     {
-        if(!SendData(clientSocket, commandStr))
+        if(!SendData(clientSocket, messageStr))
         {
             std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
             Cleanup(clientSocket);
@@ -133,9 +141,9 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
 		else
 			std::cerr << "Failed to receive files list" << std::endl;
 	}
-    else if (commandStr.compare(0, 6, "DELETE") == 0)
+    else if (command == "DELETE")
     {
-        if(!SendData(clientSocket, commandStr))
+        if(!SendData(clientSocket, messageStr))
         {
             std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
             Cleanup(clientSocket);
@@ -144,9 +152,9 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
 		if (CheckResponse(clientSocket))
 		    std::cout << "File deleted" << std::endl;
     }
-	else if (commandStr.compare(0, 4, "INFO") == 0)
+	else if (command == "INFO")
 	{
-		if (!SendData(clientSocket, commandStr))
+		if (!SendData(clientSocket, messageStr))
 			std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
 
         std::string fileInfo = ReceiveData(clientSocket);
