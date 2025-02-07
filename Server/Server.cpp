@@ -165,7 +165,8 @@ int main()
    while (true) 
    {
 	   SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
-	   if (clientSocket == INVALID_SOCKET) {
+	   if (clientSocket == INVALID_SOCKET) 
+	   {
 		   std::cerr << "Accept failed: " << WSAGetLastError() << std::endl;
 		   continue;
 	   }
