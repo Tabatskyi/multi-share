@@ -4,9 +4,14 @@
 #include <chrono>
 #include <filesystem>
 #include <thread>
+#include <mutex>
+#include <unordered_map>
 #include "CommunicationLib.cpp"
 
 #pragma comment(lib, "CommunicationLib.lib")  
+
+std::unordered_map<std::string, int> commandStatistics;
+std::mutex statsMutex;
 
 // Server configuration  
 static SOCKET CreateAndBindSocket(int port)
@@ -34,6 +39,16 @@ static SOCKET CreateAndBindSocket(int port)
     }
 
 	return serverSocket;
+}
+
+static void DisplayStatistics()
+{
+	std::lock_guard<std::mutex> lock(statsMutex);
+	std::cout << "\nCommand Statistics:\n";
+	for (const auto& [command, count] : commandStatistics)
+		std::cout << command << ": " << count << std::endl;
+
+	std::cout << std::endl;
 }
 
 // Listen for incoming connections 
@@ -66,6 +81,12 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 		std::istringstream iss(message);
 		std::string command, clientName, filename;
 		iss >> command >> clientName >> filename;
+
+		{
+			std::lock_guard<std::mutex> lock(statsMutex);
+			commandStatistics[command]++;
+		}
+
 		std::filesystem::path clientFolder = serverFiles / clientName;
 		std::filesystem::create_directory(clientFolder);
 
@@ -90,6 +111,7 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 		else if (command == "QUIT")
 		{
 			std::cout << "Server shutting down." << std::endl;
+			DisplayStatistics();
 			closesocket(clientSocket);
 			WSACleanup();
 			exit(0);
@@ -167,7 +189,6 @@ int main()
 	   SOCKET clientSocket = accept(serverSocket, nullptr, nullptr);
 	   if (clientSocket == INVALID_SOCKET) 
 	   {
-		   std::cerr << "Accept failed: " << WSAGetLastError() << std::endl;
 		   continue;
 	   }
 
