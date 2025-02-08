@@ -158,7 +158,7 @@ static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
         return false;
     }
 
-    std::ofstream file(filename, std::ios::binary | std::ios::ate);
+    std::ofstream file(filename, std::ios::binary);
     if (!file.is_open())
     {
 		std::string response = std::format("ERROR: Failed to create file: {}", filename);
