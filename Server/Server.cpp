@@ -47,8 +47,6 @@ static void DisplayStatistics()
 	std::cout << "\nCommand Statistics:\n";
 	for (const auto& [command, count] : commandStatistics)
 		std::cout << command << ": " << count << std::endl;
-
-	std::cout << std::endl;
 }
 
 // Listen for incoming connections 

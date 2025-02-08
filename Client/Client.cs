@@ -30,7 +30,7 @@ class Client
                 Console.WriteLine($"Error: {ex.Message}");
             }
 
-        } while (command != "QUIT");
+        } while (!command.Contains("QUIT"));
     }
 
     static string GetCommand()
