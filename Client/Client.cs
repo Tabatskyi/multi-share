@@ -37,7 +37,7 @@ class Client
     {
         while (true)
         {
-            Console.Write("Enter command (GET <filename>, LIST, PUT <filename>, DELETE <filename>, INFO <filename>, QUIT):\n>");
+            Console.Write("Enter command (GET <filename>, LIST, PUT <filename>, DELETE <filename>, INFO <filename>, QUIT):\n> ");
             string input = Console.ReadLine() ?? "null";
             string[] parts = input.Split(' ', 2, StringSplitOptions.TrimEntries);
 

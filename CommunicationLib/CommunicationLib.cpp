@@ -3,6 +3,8 @@
 
 #pragma comment(lib, "ws2_32.lib")  
 
+static const size_t BUFFER_SIZE_BYTES = 1024;
+
 // Initialize Winsock
 static bool InitializeWinsock()
 {
@@ -54,7 +56,7 @@ static std::string ReceiveData(SOCKET socket)
 
     std::string receivedData;
     size_t totalReceived = 0;
-    std::vector<char> buffer(1024);
+    std::vector<char> buffer(BUFFER_SIZE_BYTES);
 
     while (totalReceived < messageSize)
     {
@@ -119,7 +121,7 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
         return false;
     }
 
-	std::vector<char> buffer(1024);
+	std::vector<char> buffer(BUFFER_SIZE_BYTES);
 
     while (fileSize > 0)
     {
@@ -177,7 +179,7 @@ static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
     }
 
     size_t totalReceived = 0;
-	std::vector<char> buffer(1024);
+	std::vector<char> buffer(BUFFER_SIZE_BYTES);
 
     while (totalReceived < fileSize)
     {
