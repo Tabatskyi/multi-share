@@ -8,11 +8,11 @@
 #define PCH_H
 
 // add headers that you want to pre-compile here
-#include "framework.h"
-#include <iostream>
-#include <fstream>
 #include <vector>
 #include <sstream>
+#include <fstream>
+#include <iostream>
 #include <Ws2tcpip.h>
+#include "framework.h"
 
 #endif //PCH_H
