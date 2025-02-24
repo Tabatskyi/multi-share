@@ -1,4 +1,5 @@
 #include <mutex>
+#include <queue>
 #include <chrono>
 #include <thread>
 #include <unordered_map>
@@ -8,6 +9,105 @@
 
 std::unordered_map<std::string, int> commandStatistics;
 std::mutex statsMutex;
+
+static std::unordered_map<SOCKET, int> clientRooms;
+static std::mutex roomMutex;
+
+static std::unordered_map<int, std::queue<std::string>> roomMessageQueues;
+static std::unordered_map<int, std::vector<SOCKET>> roomClients;
+
+static const unsigned int TIME_OUT_MS = 30000; // 30s
+
+static void JoinRoom(SOCKET clientSocket, int roomID)
+{
+	std::lock_guard<std::mutex> lk(roomMutex);
+
+	if (clientRooms.find(clientSocket) != clientRooms.end())
+	{
+		int oldRoom = clientRooms[clientSocket];
+		std::vector<SOCKET> clientsVec = roomClients[oldRoom];
+		clientsVec.erase(std::remove(clientsVec.begin(), clientsVec.end(), clientSocket), clientsVec.end());
+	}
+
+	clientRooms[clientSocket] = roomID;
+	roomClients[roomID].push_back(clientSocket);
+
+	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}\n", clientSocket, roomID);
+	roomMessageQueues[roomID].push(joinMsg);
+	std::cout << joinMsg;
+}
+
+static void BroadcastMessage(const std::string& message, SOCKET senderSocket)
+{
+	int roomID = 0;
+	{
+		std::lock_guard<std::mutex> lk(roomMutex);
+		if (clientRooms.find(senderSocket) != clientRooms.end())
+		{
+			roomID = clientRooms[senderSocket];
+		}
+	}
+
+	roomMessageQueues[roomID].push(message);
+
+	for (SOCKET client : roomClients[roomID])
+	{
+		if (client != senderSocket)
+		{
+			SendData(client, message);
+		}
+	}
+}
+
+static bool BroadcastFile(const std::string& filename, size_t fileSize, SOCKET senderSocket)
+{
+	int roomID = 0;
+	{
+		std::lock_guard<std::mutex> lk(roomMutex);
+		if (clientRooms.find(senderSocket) != clientRooms.end())
+			roomID = clientRooms[senderSocket];
+	}
+
+	std::vector<std::thread> threads;
+	threads.reserve(roomClients[roomID].size());
+
+	for (SOCKET client : roomClients[roomID])
+	{
+		if (client == senderSocket)
+			continue;
+
+		threads.emplace_back([&filename, fileSize, client]()
+		{
+			std::string offerMsg = std::format("FILE_OFFER {} {}", filename, fileSize);
+			if (!SendData(client, offerMsg))
+				return;
+
+			std::string response = ReceiveData(client, TIME_OUT_MS);
+			if (response == "TIME_OUT")
+			{
+				std::cout << "Client " << client << " timed out on file: " << filename << std::endl;
+				return;
+			}
+
+			if (response == "y")
+			{
+				if (!SendFileToStream(filename, client))
+				{
+					std::cerr << "File transfer failed for client " << client << std::endl;
+				}
+			}
+			else
+			{
+				std::cout << "Client " << client << " rejected file: " << filename << std::endl;
+			}
+		});
+	}
+
+	for (auto& th : threads)
+		th.join();
+
+	return true;
+}
 
 // Server configuration  
 static SOCKET CreateAndBindSocket(int port)
@@ -84,25 +184,30 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 		std::filesystem::path clientFolder = serverFiles / clientName;
 		std::filesystem::create_directory(clientFolder);
 
-		if (command == "PUT")
+		if (command == "j")
+		{
+			int roomID;
+			iss >> roomID;
+			JoinRoom(clientSocket, roomID);
+			SendData(clientSocket, "OK");
+		}
+		else if (command == "sf")
 		{
 			std::string filePath = (clientFolder / filename).string();
-			if (WriteFileFromStream(filePath, clientSocket))
+			if (!WriteFileFromStream(filePath, clientSocket))
 			{
-				std::cout << "File download completed" << std::endl;
-				SendData(clientSocket, "OK");
+				std::cerr << "Failed to receive file: " << filename << std::endl;
+				SendData(clientSocket, "ERROR");
+				return;
 			}
-		}
-		else if (command == "GET")
-		{
-			std::string filePath = (clientFolder / filename).string();
-			if (SendFileToStream(filePath, clientSocket))
-				std::cout << "File upload completed" << std::endl;
 
-			if (CheckResponse(clientSocket))
-				std::cout << "File delivered" << std::endl;
+			std::cout << "File download completed" << std::endl;
+			SendData(clientSocket, "OK");
+
+
+			
 		}
-		else if (command == "QUIT")
+		else if (command == "q")
 		{
 			std::cout << "Server shutting down." << std::endl;
 			DisplayStatistics();
@@ -110,42 +215,10 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 			WSACleanup();
 			exit(0);
 		}
-		else if (command == "LIST")
+		else if (command == "sm") 
 		{
-			std::string fileList = ListFiles(clientFolder);
-			SendData(clientSocket, fileList);
-		}
-		else if (command == "DELETE")
-		{
-			std::string filePath = (clientFolder / filename).string();
-			if (std::filesystem::remove(filePath))
-			{
-				std::cout << "File '" << filePath << "' deleted" << std::endl;
-				SendData(clientSocket, "OK");
-			}
-			else
-			{
-				std::string response = std::format("ERROR: Failed to delete file: '{}'", filePath);
-				std::cerr << response << std::endl;
-				SendData(clientSocket, response);
-			}
-		}
-		else if (command == "INFO")
-		{
-			std::string file = (clientFolder / filename).string();
-			if (std::filesystem::exists(file))
-			{
-				long long fileSize = std::filesystem::file_size(file);
-				std::filesystem::file_time_type lastWriteTime = std::filesystem::last_write_time(file);
-				std::string fileInfo = std::format("Size: {} bytes\nLast modified: {}", fileSize, lastWriteTime);
-				SendData(clientSocket, fileInfo);
-			}
-			else
-			{
-				std::cerr << "File '" << file << "' not found" << std::endl;
-				std::string response = "File not found";
-				SendData(clientSocket, response);
-			}
+			std::cout << "Broadcasting message:" << message << std::endl;
+			BroadcastMessage(message, clientSocket);
 		}
 		else
 		{

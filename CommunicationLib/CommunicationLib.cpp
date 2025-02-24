@@ -44,7 +44,7 @@ static bool SendData(SOCKET socket, const std::string& message)
 }
 
 // Receive data
-static std::string ReceiveData(SOCKET socket)
+static std::string ReceiveData(SOCKET socket, unsigned int timeoutMS = 0)
 {
     size_t messageSize = 0;
     int bytesReceived = recv(socket, reinterpret_cast<char*>(&messageSize), sizeof(messageSize), 0);
