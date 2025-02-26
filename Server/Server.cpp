@@ -18,21 +18,21 @@ static std::unordered_map<int, std::vector<SOCKET>> roomClients;
 
 static const unsigned int TIME_OUT_MS = 30000; // 30s
 
-static void JoinRoom(SOCKET clientSocket, int roomID)
+static void JoinRoom(SOCKET clientSocket, int roomID, std::string clientName)
 {
 	std::lock_guard<std::mutex> lk(roomMutex);
 
 	if (clientRooms.find(clientSocket) != clientRooms.end())
 	{
 		int oldRoom = clientRooms[clientSocket];
-		std::vector<SOCKET> clientsVec = roomClients[oldRoom];
+		std::vector<SOCKET>& clientsVec = roomClients[oldRoom];
 		clientsVec.erase(std::remove(clientsVec.begin(), clientsVec.end(), clientSocket), clientsVec.end());
 	}
 
 	clientRooms[clientSocket] = roomID;
 	roomClients[roomID].push_back(clientSocket);
 
-	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}\n", clientSocket, roomID);
+	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}\n", clientName, roomID);
 	roomMessageQueues[roomID].push(joinMsg);
 	std::cout << joinMsg;
 }
@@ -40,17 +40,18 @@ static void JoinRoom(SOCKET clientSocket, int roomID)
 static void BroadcastMessage(const std::string& message, SOCKET senderSocket)
 {
 	int roomID = 0;
+	std::vector<SOCKET> clientsInRoom;
 	{
 		std::lock_guard<std::mutex> lk(roomMutex);
 		if (clientRooms.find(senderSocket) != clientRooms.end())
 		{
 			roomID = clientRooms[senderSocket];
 		}
+		clientsInRoom = roomClients[roomID];
+		roomMessageQueues[roomID].push(message);
 	}
 
-	roomMessageQueues[roomID].push(message);
-
-	for (SOCKET client : roomClients[roomID])
+	for (SOCKET client : clientsInRoom)
 	{
 		if (client != senderSocket)
 		{
@@ -109,63 +110,6 @@ static bool BroadcastFile(const std::string& filename, size_t fileSize, SOCKET s
 	return true;
 }
 
-// Server configuration  
-static SOCKET CreateAndBindSocket(int port)
-{
-    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket == INVALID_SOCKET)
-    {
-        std::cerr << "Error creating socket: " << WSAGetLastError() << std::endl;
-        WSACleanup();
-        return INVALID_SOCKET;
-    }
-
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(port);
-
-    // Bind the socket  
-    if (bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR)
-    {
-        std::cerr << "Bind failed with error: " << WSAGetLastError() << std::endl;
-        closesocket(serverSocket);
-        WSACleanup();
-        return INVALID_SOCKET;
-    }
-
-	return serverSocket;
-}
-
-static void DisplayStatistics()
-{
-	std::lock_guard<std::mutex> lock(statsMutex);
-	std::cout << "\nCommand Statistics:\n";
-	for (const auto& [command, count] : commandStatistics)
-		std::cout << command << ": " << count << std::endl;
-}
-
-// Listen for incoming connections 
-static int Listen(SOCKET serverSocket)
-{ 
-	if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR)
-	{
-		std::cerr << "Listen failed with error: " << WSAGetLastError() << std::endl;
-		closesocket(serverSocket);
-		WSACleanup();
-		return 1;
-	}
-	return 0;
-}
-
-static std::string ListFiles(std::filesystem::path path)
-{
-	std::string fileList;
-    for (const auto& entry : std::filesystem::directory_iterator(path))
-		fileList += entry.path().filename().string() + "\n";
-	return fileList;
-}
-
 static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serverFiles)
 {
 	std::string message = ReceiveData(clientSocket);
@@ -188,7 +132,7 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 		{
 			int roomID;
 			iss >> roomID;
-			JoinRoom(clientSocket, roomID);
+			JoinRoom(clientSocket, roomID, clientName);
 			SendData(clientSocket, "OK");
 		}
 		else if (command == "sf")
@@ -203,14 +147,11 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 
 			std::cout << "File download completed" << std::endl;
 			SendData(clientSocket, "OK");
-
-
 			
 		}
 		else if (command == "q")
 		{
 			std::cout << "Server shutting down." << std::endl;
-			DisplayStatistics();
 			closesocket(clientSocket);
 			WSACleanup();
 			exit(0);

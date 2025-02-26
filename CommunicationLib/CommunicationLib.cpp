@@ -17,6 +17,34 @@ static bool InitializeWinsock()
 	return true;
 }
 
+// Server configuration  
+static SOCKET CreateAndBindSocket(int port)
+{
+    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (serverSocket == INVALID_SOCKET)
+    {
+        std::cerr << "Error creating socket: " << WSAGetLastError() << std::endl;
+        WSACleanup();
+        return INVALID_SOCKET;
+    }
+
+    sockaddr_in serverAddr{};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(port);
+
+    // Bind the socket  
+    if (bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR)
+    {
+        std::cerr << "Bind failed with error: " << WSAGetLastError() << std::endl;
+        closesocket(serverSocket);
+        WSACleanup();
+        return INVALID_SOCKET;
+    }
+
+    return serverSocket;
+}
+
 // Send data
 static bool SendData(SOCKET socket, const std::string& message)
 {
@@ -103,6 +131,18 @@ static std::string ReceiveData(SOCKET socket, unsigned int timeoutMS = 0)
     return receivedData;
 }
 
+// Listen for incoming connections 
+static int Listen(SOCKET serverSocket)
+{
+    if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR)
+    {
+        std::cerr << "Listen failed with error: " << WSAGetLastError() << std::endl;
+        closesocket(serverSocket);
+        WSACleanup();
+        return 1;
+    }
+    return 0;
+}
 
 static bool CheckResponse(SOCKET socket)
 {
@@ -171,7 +211,7 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
         }
         fileSize -= bytesToRead;
     }
-
+    
     file.close();
     return true;
 }

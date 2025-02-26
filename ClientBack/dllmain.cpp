@@ -4,8 +4,8 @@
 #pragma comment(lib, "CommunicationLib.lib")
 
 static BOOL APIENTRY DllMain(HMODULE hModule,
-                      DWORD  ul_reason_for_call,
-                      LPVOID lpReserved)
+    DWORD  ul_reason_for_call,
+    LPVOID lpReserved)
 {
     switch (ul_reason_for_call)
     {
@@ -47,7 +47,7 @@ static void Cleanup(SOCKET clientSocket)
     closesocket(clientSocket);
 }
 
-extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* serverIp, int port, const WCHAR* message)
+extern "C" __declspec(dllexport) void HandleOutcomingClientCommunication(const WCHAR* serverIp, int port, const WCHAR* message)
 {
     if (!InitializeWinsock())
         return;
@@ -73,10 +73,38 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
 
     std::istringstream iss(messageStr);
     std::string command, clientName, filename;
-    iss >> command >> clientName >> filename;
+    int roomID;
+    iss >> command >> clientName >> roomID >> filename;
 
-	if (command == "PUT")
+    if (command == "j")
     {
+        std::string joinMessage = std::format("CLIENT {} JOINED ROOM {}", clientName, roomID);
+        if (SendData(clientSocket, joinMessage))
+        {
+            std::cout << joinMessage << std::endl;
+        }
+        else
+        {
+            std::cerr << "Failed to send join message" << std::endl;
+        }
+    }
+    else if (command == "sm")
+    {
+        std::string chatMessage;
+        std::getline(iss, chatMessage);
+        std::string fullMessage = std::format("CLIENT {}: {}", clientName, chatMessage);
+        if (SendData(clientSocket, fullMessage))
+        {
+            std::cout << fullMessage << std::endl;
+        }
+        else
+        {
+            std::cerr << "Failed to send message" << std::endl;
+        }
+    }
+    else if (command == "sf")
+    {
+        
         if (SendFileToStream(filename, clientSocket))
         {
             std::cout << "File '" << filename << "' sent" << std::endl;
@@ -85,49 +113,95 @@ extern "C" __declspec(dllexport) void HandleClientCommunication(const WCHAR* ser
         }
         else
         {
-            std::cerr << "Failed to deliver file" << std::endl;
+            std::cerr << "Failed to deliver file to server" << std::endl;
         }
     }
-	else if (command == "GET")
+    else if (command == "q")
     {
-		if (!WriteFileFromStream(filename, clientSocket))
-        { 
-			std::cerr << "Failed to receive file" << std::endl;
-			Cleanup(clientSocket);
-			return;
-		}
-
-		SendData(clientSocket, "OK");
+        std::cout << "Quitting the server" << std::endl;
     }
-	else if (command == "QUIT")
-	{
-		std::cout << "Quitting the server" << std::endl;
-	}
-	else if (command == "LIST")
-    {
-		std::vector<char> buffer(1024);
-        std::string fileList = ReceiveData(clientSocket);
-
-        if (fileList.size() > 0)
-            std::cout << "Received files list:\n" << fileList;
-		else
-			std::cerr << "Failed to receive files list" << std::endl;
-	}
-    else if (command == "DELETE")
-    {
-		if (CheckResponse(clientSocket))
-		    std::cout << "File deleted" << std::endl;
-    }
-	else if (command == "INFO")
-	{
-        std::string fileInfo = ReceiveData(clientSocket);
-		if (fileInfo.size() > 0)
-			std::cout << "Received file info:\n" << fileInfo << std::endl;
-        else
-			std::cerr << "Failed to receive file info" << std::endl;
-	}
-	else
+    else
         std::cerr << "Invalid command" << std::endl;
 
     Cleanup(clientSocket);
+}
+
+extern "C" __declspec(dllexport) void HandleIncomingClientCommunication(const WCHAR* bindIp, int port)
+{
+    if (!InitializeWinsock())
+        return;
+
+    SOCKET listenSocket = CreateAndBindSocket(bindIp, port);
+    if (listenSocket == INVALID_SOCKET)
+    {
+        std::cerr << "Failed to create listening socket." << std::endl;
+        WSACleanup();
+        return;
+    }
+
+    if (Listen(listenSocket) != 0)
+    {
+        return;
+    }
+
+    SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+    if (clientSocket == INVALID_SOCKET)
+    {
+        std::cerr << "Accept failed with error: " << WSAGetLastError() << std::endl;
+        closesocket(listenSocket);
+        WSACleanup();
+        return;
+    }
+    closesocket(listenSocket);
+
+    while (true)
+    {
+        std::string message = ReceiveData(clientSocket);
+        if (message.empty())
+        {
+            std::cerr << "Failed to receive message or connection closed." << std::endl;
+            break;
+        }
+        std::istringstream iss(message);
+        std::string command, clientName, filename;
+        iss >> command >> clientName >> filename;
+        if (command == "fo")
+        {
+            size_t fileSize;
+            iss >> fileSize;
+            std::string offerMsg = std::format("CLIENT {} wants to send {} file (%zu bytes). Accept (y/n)?", clientName, filename, fileSize);
+            std::cout << offerMsg << std::endl;
+            std::string response;
+            std::cin >> response;
+            if (response == "y")
+            {
+                SendData(clientSocket, "y");
+                if (!WriteFileFromStream(filename, clientSocket))
+                {
+                    std::cerr << "Failed to receive file" << std::endl;
+                }
+                else
+                {
+                    std::cout << "File '" << filename << "' received" << std::endl;
+                }
+            }
+            else
+            {
+                SendData(clientSocket, "n");
+                std::cout << "File transfer rejected" << std::endl;
+            }
+        }
+        else if (command == "m")
+        {
+            std::string chatMessage;
+            std::getline(iss, chatMessage);
+            std::cout << "CLIENT " << clientName << ": " << chatMessage << std::endl;
+        }
+        else
+        {
+            std::cerr << "Unknown command received: " << command << std::endl;
+        }
+    }
+    closesocket(clientSocket);
+    WSACleanup();
 }
