@@ -60,6 +60,29 @@ static std::string ReceiveData(SOCKET socket, unsigned int timeoutMS = 0)
 
     while (totalReceived < messageSize)
     {
+        if (timeoutMS > 0)
+        {
+            fd_set readfds{};
+            FD_ZERO(&readfds);
+            FD_SET(socket, &readfds);
+
+            timeval timeout{};
+            timeout.tv_sec = timeoutMS / 1000;
+            timeout.tv_usec = (timeoutMS % 1000) * 1000;
+
+            int selectResult = select(0, &readfds, nullptr, nullptr, timeoutMS > 0 ? &timeout : nullptr);
+            if (selectResult == 0)
+            {
+                std::cerr << "Receive timed out." << std::endl;
+                return "";
+            }
+            else if (selectResult == SOCKET_ERROR)
+            {
+                std::cerr << "Select failed with error: " << WSAGetLastError() << std::endl;
+                return "";
+            }
+        }
+
         int bytesToReceive = static_cast<int>(min(buffer.size(), messageSize - totalReceived));
         bytesReceived = recv(socket, buffer.data(), bytesToReceive, 0);
 
@@ -79,6 +102,7 @@ static std::string ReceiveData(SOCKET socket, unsigned int timeoutMS = 0)
 
     return receivedData;
 }
+
 
 static bool CheckResponse(SOCKET socket)
 {
