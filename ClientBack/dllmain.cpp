@@ -5,6 +5,7 @@
 
 static SOCKET clientSocket = INVALID_SOCKET;
 static std::mutex sendMutex;
+static std::mutex consoleInputMutex;
 
 static BOOL APIENTRY DllMain(HMODULE hModule,
     DWORD  ul_reason_for_call,
@@ -97,11 +98,65 @@ extern "C" __declspec(dllexport) void ReceiveRoutine()
             std::cerr << "Failed to receive message or connection closed." << std::endl;
             break;
         }
-        std::cout << "Received: " << message << std::endl;
+
+        std::istringstream iss(message);
+        std::string command;
+        iss >> command;
+
+        if (command == "fo")
+        {
+            std::string senderName, filename;
+            size_t fileSize = 0;
+            iss >> senderName >> filename >> fileSize;
+
+            std::string offerPrompt = std::format("Client {} is offering file '{}' ({} bytes). Accept (y/n)? ", senderName, filename, fileSize);
+
+            std::string userResponse;
+            {
+                std::lock_guard<std::mutex> lock(consoleInputMutex);
+                std::cout << offerPrompt;
+                std::getline(std::cin, userResponse);
+            }
+
+            if (!SendData(clientSocket, userResponse))
+            {
+                std::cerr << "Failed to send file response." << std::endl;
+            }
+
+            if (userResponse == "y")
+            {
+                std::cout << "Receiving file '" << filename << "' ..." << std::endl;
+                if (!WriteFileFromStream(filename, clientSocket))
+                {
+                    std::cerr << "Failed to receive file." << std::endl;
+                }
+                else
+                {
+                    std::cout << "File '" << filename << "' successfully received." << std::endl;
+                }
+            }
+            else
+            {
+                std::cout << "File transfer declined." << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Message: " << message << std::endl;
+        }
     }
     closesocket(clientSocket);
     WSACleanup();
 }
+
+extern "C" __declspec(dllexport) bool SendFile(const WCHAR* filename)
+{
+    std::wstring fileWStr(filename);
+    std::string fileStr(fileWStr.begin(), fileWStr.end());
+
+    return SendFileToStream(fileStr, clientSocket);
+}
+
 /*  i may need this later
 extern "C" __declspec(dllexport) void HandleOutcomingClientCommunication(const WCHAR* serverIp, int port, const WCHAR* message)
 {

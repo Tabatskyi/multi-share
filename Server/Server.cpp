@@ -41,51 +41,55 @@ static void BroadcastMessage(const std::string& message, SOCKET senderSocket)
 	}
 }
 
-static bool BroadcastFile(const std::string& filename, size_t fileSize, SOCKET senderSocket)
+static bool BroadcastFile(const std::string& fullFilePath, const std::string& displayFileName, size_t fileSize, SOCKET senderSocket, const std::string& senderClientName)
 {
 	int roomID = 0;
+	std::vector<SOCKET> clientsInRoom;
 	{
 		std::lock_guard<std::mutex> lk(roomMutex);
 		if (clientRooms.find(senderSocket) != clientRooms.end())
+		{
 			roomID = clientRooms[senderSocket];
+		}
+		clientsInRoom = roomClients[roomID];
 	}
 
 	std::vector<std::thread> threads;
-	threads.reserve(roomClients[roomID].size());
+	threads.reserve(clientsInRoom.size());
 
-	for (SOCKET client : roomClients[roomID])
+	for (SOCKET client : clientsInRoom)
 	{
 		if (client == senderSocket)
 			continue;
 
-		threads.emplace_back([&filename, fileSize, client]()
+		threads.emplace_back([&fullFilePath, &displayFileName, fileSize, client, &senderClientName]()
 		{
-			std::string offerMsg = std::format("FILE_OFFER {} {}", filename, fileSize);
+			std::string offerMsg = std::format("fo {} {} {}", senderClientName, displayFileName, fileSize);
 			if (!SendData(client, offerMsg))
 				return;
 
 			std::string response = ReceiveData(client, TIME_OUT_MS);
 			if (response == "TIME_OUT")
 			{
-				std::cout << "Client " << client << " timed out on file: " << filename << std::endl;
+				std::cout << "Client " << senderClientName << " timed out on file: " << displayFileName << std::endl;
 				return;
 			}
 
 			if (response == "y")
 			{
-				if (!SendFileToStream(filename, client))
+				if (!SendFileToStream(fullFilePath, client))
 				{
 					std::cerr << "File transfer failed for client " << client << std::endl;
 				}
 			}
 			else
 			{
-				std::cout << "Client " << client << " rejected file: " << filename << std::endl;
+				std::cout << "Client " << client << " rejected file: " << displayFileName << std::endl;
 			}
 		});
 	}
 
-	for (auto& thread : threads)
+	for (std::thread& thread : threads)
 		thread.join();
 
 	return true;
@@ -140,8 +144,8 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 			{
 				std::string filename;
 				iss >> filename;
-				std::string filePath = (clientFolder / filename).string();
-				if (!WriteFileFromStream(filePath, clientSocket))
+				std::filesystem::path filePath = clientFolder / filename;
+				if (!WriteFileFromStream(filePath.string(), clientSocket))
 				{
 					std::cerr << "Failed to receive file: " << filename << std::endl;
 					SendData(clientSocket, "ERROR");
@@ -149,6 +153,9 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 				}
 				std::cout << "File download completed" << std::endl;
 				SendData(clientSocket, "OK");
+
+				size_t fileSize = std::filesystem::file_size(filePath);
+				BroadcastFile(filePath.string(), filename, fileSize, clientSocket, clientName);
 			}
 			else if (command == "m")
 			{
