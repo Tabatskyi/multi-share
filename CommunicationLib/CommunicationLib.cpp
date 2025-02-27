@@ -18,31 +18,44 @@ static bool InitializeWinsock()
 }
 
 // Server configuration  
-static SOCKET CreateAndBindSocket(int port)
+static SOCKET CreateAndBindSocket(int port, PCWSTR bindIp = nullptr)
 {
-    SOCKET serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (serverSocket == INVALID_SOCKET)
+    SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenSocket == INVALID_SOCKET)
     {
         std::cerr << "Error creating socket: " << WSAGetLastError() << std::endl;
         WSACleanup();
         return INVALID_SOCKET;
     }
 
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(port);
+    sockaddr_in bindAddr{};
+    bindAddr.sin_family = AF_INET;
+    bindAddr.sin_port = htons(port);
 
-    // Bind the socket  
-    if (bind(serverSocket, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR)
+    if (bindIp != nullptr && wcslen(bindIp) > 0)
+    {
+        if (InetPton(AF_INET, bindIp, &bindAddr.sin_addr) != 1)
+        {
+            std::cerr << "Invalid bind IP address." << std::endl;
+            closesocket(listenSocket);
+            WSACleanup();
+            return INVALID_SOCKET;
+        }
+    }
+    else
+    {
+        bindAddr.sin_addr.s_addr = INADDR_ANY;
+    }
+
+    if (bind(listenSocket, reinterpret_cast<sockaddr*>(&bindAddr), sizeof(bindAddr)) == SOCKET_ERROR)
     {
         std::cerr << "Bind failed with error: " << WSAGetLastError() << std::endl;
-        closesocket(serverSocket);
+        closesocket(listenSocket);
         WSACleanup();
         return INVALID_SOCKET;
     }
 
-    return serverSocket;
+    return listenSocket;
 }
 
 // Send data

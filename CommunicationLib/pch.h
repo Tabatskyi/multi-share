@@ -12,7 +12,8 @@
 #include <fstream>
 #include <iostream>
 #include <algorithm>
-#include <WinSock2.h> 
+#include <WinSock2.h>
+#include <Ws2tcpip.h>
 #include <filesystem>
 #include "framework.h"
 

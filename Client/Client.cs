@@ -5,37 +5,49 @@ namespace Client;
 class Client
 {
     [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-    public static extern void HandleOutcomingClientCommunication(string serverIp, int port, string command);
+    public static extern bool EstablishConnection(string serverIp, int port);
 
     [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
-    public static extern void HandleIncomingClientCommunication(string serverIp, int port);
+    public static extern bool SendCommand(string command);
+
+    [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void ReceiveRoutine();
 
     static string clientName = "Unknown";
+    static string serverIp = "127.0.0.1";
+    static int port = 12345;
 
     static void Main()
     {
         Console.Write("Enter your client name:\n> ");
         clientName = Console.ReadLine() ?? clientName;
 
-        string serverIp = "127.0.0.1";
-        int port = 12345;
-        string command;
+        if (!EstablishConnection(serverIp, port))
+        {
+            Console.WriteLine("Could not establish persistent connection to server.");
+            return;
+        }
 
-        Thread incomingThread = new(() => HandleIncomingClientCommunication(serverIp, port));
-        incomingThread.Start();
+        Thread receiverThread = new(ReceiveRoutine)
+        {
+            IsBackground = true
+        };
+        receiverThread.Start();
+
+        string command;
 
         do
         {
             command = GetCommand();
-            try
-            {
-                HandleOutcomingClientCommunication(serverIp, port, command);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error: {ex.Message}");
-            }
 
+            if (command.StartsWith('j') || command.StartsWith('m') || command.StartsWith('f'))
+            {
+                string[] parts = command.Split(' ', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length == 2)
+                    command = $"{parts[0]} {clientName} {parts[1]}";
+            }
+            if (!SendCommand(command))
+                Console.WriteLine("Error sending command.");
         } while (!command.Contains('q'));
     }
 
@@ -45,21 +57,16 @@ class Client
         {
             Console.Write("Enter command (j <roomID>, m <message>, sf <filename>, q):\n> ");
             string input = Console.ReadLine() ?? "null";
-            string[] parts = input.Split(' ', 2, StringSplitOptions.TrimEntries);
-
-            string inputCommand = parts[0].ToLower();
-            if (parts.Length == 2 && (inputCommand == "j" || inputCommand == "sm" || inputCommand == "sf"))
+            string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 1)
             {
-                return $"{inputCommand} {clientName} {parts[1]}";
+                string cmd = parts[0].ToLower();
+                if ((cmd == "j" || cmd == "m" || cmd == "f") && parts.Length == 2)
+                    return input;
+                else if (cmd == "q")
+                    return input;
             }
-            else if (inputCommand == "q")
-            {
-                return $"{inputCommand} {clientName}";
-            }
-            else
-            {
-                Console.WriteLine("Invalid command. Please try again.");
-            }
+            Console.WriteLine("Invalid command. Please try again.");
         }
     }
 }

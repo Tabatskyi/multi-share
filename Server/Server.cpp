@@ -18,25 +18,6 @@ static std::unordered_map<int, std::vector<SOCKET>> roomClients;
 
 static const unsigned int TIME_OUT_MS = 30000; // 30s
 
-static void JoinRoom(SOCKET clientSocket, int roomID, std::string clientName)
-{
-	std::lock_guard<std::mutex> lk(roomMutex);
-
-	if (clientRooms.find(clientSocket) != clientRooms.end())
-	{
-		int oldRoom = clientRooms[clientSocket];
-		std::vector<SOCKET>& clientsVec = roomClients[oldRoom];
-		clientsVec.erase(std::remove(clientsVec.begin(), clientsVec.end(), clientSocket), clientsVec.end());
-	}
-
-	clientRooms[clientSocket] = roomID;
-	roomClients[roomID].push_back(clientSocket);
-
-	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}\n", clientName, roomID);
-	roomMessageQueues[roomID].push(joinMsg);
-	std::cout << joinMsg;
-}
-
 static void BroadcastMessage(const std::string& message, SOCKET senderSocket)
 {
 	int roomID = 0;
@@ -104,73 +85,98 @@ static bool BroadcastFile(const std::string& filename, size_t fileSize, SOCKET s
 		});
 	}
 
-	for (auto& th : threads)
-		th.join();
+	for (auto& thread : threads)
+		thread.join();
 
 	return true;
 }
 
+static void JoinRoom(SOCKET clientSocket, int roomID, std::string clientName)
+{
+	{
+		std::lock_guard<std::mutex> lk(roomMutex);
+		if (clientRooms.find(clientSocket) != clientRooms.end())
+		{
+			int oldRoom = clientRooms[clientSocket];
+			std::vector<SOCKET>& clientsVec = roomClients[oldRoom];
+			clientsVec.erase(std::remove(clientsVec.begin(), clientsVec.end(), clientSocket), clientsVec.end());
+		}
+		clientRooms[clientSocket] = roomID;
+		roomClients[roomID].push_back(clientSocket);
+	} 
+
+	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}\n", clientName, roomID);
+	BroadcastMessage(joinMsg, clientSocket);
+}
+
 static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serverFiles)
 {
-	std::string message = ReceiveData(clientSocket);
-	if (!message.empty())
+	try
 	{
-		std::cout << "Received command: " << message << std::endl;
-		std::istringstream iss(message);
-		std::string command, clientName, filename;
-		iss >> command >> clientName >> filename;
-
+		while (true)
 		{
-			std::lock_guard<std::mutex> lock(statsMutex);
-			commandStatistics[command]++;
-		}
-
-		std::filesystem::path clientFolder = serverFiles / clientName;
-		std::filesystem::create_directory(clientFolder);
-
-		if (command == "j")
-		{
-			int roomID;
-			iss >> roomID;
-			JoinRoom(clientSocket, roomID, clientName);
-			SendData(clientSocket, "OK");
-		}
-		else if (command == "sf")
-		{
-			std::string filePath = (clientFolder / filename).string();
-			if (!WriteFileFromStream(filePath, clientSocket))
+			std::string message = ReceiveData(clientSocket);
+			if (message.empty())
 			{
-				std::cerr << "Failed to receive file: " << filename << std::endl;
-				SendData(clientSocket, "ERROR");
-				return;
+				std::cerr << "Receive failed or connection closed. Error: " << WSAGetLastError() << std::endl;
+				break;
 			}
+			std::cout << "Received command: " << message << std::endl;
+			std::istringstream iss(message);
+			std::string command, clientName;
+			iss >> command >> clientName;
 
-			std::cout << "File download completed" << std::endl;
-			SendData(clientSocket, "OK");
-			
-		}
-		else if (command == "q")
-		{
-			std::cout << "Server shutting down." << std::endl;
-			closesocket(clientSocket);
-			WSACleanup();
-			exit(0);
-		}
-		else if (command == "sm") 
-		{
-			std::cout << "Broadcasting message:" << message << std::endl;
-			BroadcastMessage(message, clientSocket);
-		}
-		else
-		{
-			std::string response = "Unknown command.";
+			std::filesystem::path clientFolder = serverFiles / clientName;
+			std::filesystem::create_directory(clientFolder);
+
+			if (command == "j")
+			{
+				int roomID;
+				iss >> roomID;
+				JoinRoom(clientSocket, roomID, clientName);
+				SendData(clientSocket, "OK");
+			}
+			else if (command == "f")
+			{
+				std::string filename;
+				iss >> filename;
+				std::string filePath = (clientFolder / filename).string();
+				if (!WriteFileFromStream(filePath, clientSocket))
+				{
+					std::cerr << "Failed to receive file: " << filename << std::endl;
+					SendData(clientSocket, "ERROR");
+					continue;
+				}
+				std::cout << "File download completed" << std::endl;
+				SendData(clientSocket, "OK");
+			}
+			else if (command == "m")
+			{
+				std::string text;
+				std::getline(iss, text);
+				while (!text.empty() && isspace(text.front()))
+					text.erase(text.begin());
+				std::string broadcastMsg = std::format("CLIENT {}: {}", clientName, text);
+				std::cout << "Broadcasting message: " << broadcastMsg << std::endl;
+				BroadcastMessage(broadcastMsg, clientSocket);
+			}
+			else
+			{
+				std::string response = "Unknown command.";
+				SendData(clientSocket, response);
+			}
 		}
 	}
-	else
+	catch (const std::exception& ex)
 	{
-		std::cerr << "Receive failed with error: " << WSAGetLastError() << std::endl;
+		std::cerr << "Exception in HandleClient: " << ex.what() << std::endl;
+	}
+	catch (...)
+	{
+		std::cerr << "Unknown exception in HandleClient." << std::endl;
 	}
 }
+
 
 int main()  
 {  

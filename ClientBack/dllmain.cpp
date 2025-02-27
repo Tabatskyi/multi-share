@@ -3,6 +3,9 @@
 
 #pragma comment(lib, "CommunicationLib.lib")
 
+static SOCKET clientSocket = INVALID_SOCKET;
+static std::mutex sendMutex;
+
 static BOOL APIENTRY DllMain(HMODULE hModule,
     DWORD  ul_reason_for_call,
     LPVOID lpReserved)
@@ -47,6 +50,59 @@ static void Cleanup(SOCKET clientSocket)
     closesocket(clientSocket);
 }
 
+extern "C" __declspec(dllexport) bool EstablishConnection(const WCHAR* serverIp, int port)
+{
+    if (!InitializeWinsock())
+        return false;
+
+    clientSocket = CreateAndConnectSocket(serverIp, port);
+    if (clientSocket == INVALID_SOCKET)
+    {
+        std::cerr << "Failed to connect to server persistent connection" << std::endl;
+        return false;
+    }
+    return true;
+}
+
+extern "C" __declspec(dllexport) bool SendCommand(const WCHAR* command)
+{
+    if (clientSocket == INVALID_SOCKET)
+        return false;
+
+    std::wstring commandWStr(command);
+    std::string commandStr(commandWStr.begin(), commandWStr.end());
+
+    std::lock_guard<std::mutex> lk(sendMutex);
+    if (!SendData(clientSocket, commandStr))
+    {
+        std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
+        return false;
+    }
+    return true;
+}
+
+extern "C" __declspec(dllexport) void ReceiveRoutine()
+{
+    if (clientSocket == INVALID_SOCKET)
+    {
+        std::cerr << "Persistent socket not established." << std::endl;
+        return;
+    }
+
+    while (true)
+    {
+        std::string message = ReceiveData(clientSocket);
+        if (message.empty())
+        {
+            std::cerr << "Failed to receive message or connection closed." << std::endl;
+            break;
+        }
+        std::cout << "Received: " << message << std::endl;
+    }
+    closesocket(clientSocket);
+    WSACleanup();
+}
+/*  i may need this later
 extern "C" __declspec(dllexport) void HandleOutcomingClientCommunication(const WCHAR* serverIp, int port, const WCHAR* message)
 {
     if (!InitializeWinsock())
@@ -88,7 +144,7 @@ extern "C" __declspec(dllexport) void HandleOutcomingClientCommunication(const W
             std::cerr << "Failed to send join message" << std::endl;
         }
     }
-    else if (command == "sm")
+    else if (command == "m")
     {
         std::string chatMessage;
         std::getline(iss, chatMessage);
@@ -102,7 +158,7 @@ extern "C" __declspec(dllexport) void HandleOutcomingClientCommunication(const W
             std::cerr << "Failed to send message" << std::endl;
         }
     }
-    else if (command == "sf")
+    else if (command == "f")
     {
         
         if (SendFileToStream(filename, clientSocket))
@@ -131,7 +187,7 @@ extern "C" __declspec(dllexport) void HandleIncomingClientCommunication(const WC
     if (!InitializeWinsock())
         return;
 
-    SOCKET listenSocket = CreateAndBindSocket(bindIp, port);
+    SOCKET listenSocket = CreateAndBindSocket(port, bindIp);
     if (listenSocket == INVALID_SOCKET)
     {
         std::cerr << "Failed to create listening socket." << std::endl;
@@ -191,11 +247,9 @@ extern "C" __declspec(dllexport) void HandleIncomingClientCommunication(const WC
                 std::cout << "File transfer rejected" << std::endl;
             }
         }
-        else if (command == "m")
+        else if (command == "m") 
         {
-            std::string chatMessage;
-            std::getline(iss, chatMessage);
-            std::cout << "CLIENT " << clientName << ": " << chatMessage << std::endl;
+            std::cout << "Received message: " << message << std::endl;
         }
         else
         {
@@ -205,3 +259,4 @@ extern "C" __declspec(dllexport) void HandleIncomingClientCommunication(const WC
     closesocket(clientSocket);
     WSACleanup();
 }
+*/
