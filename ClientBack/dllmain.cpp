@@ -51,6 +51,16 @@ static void Cleanup(SOCKET clientSocket)
     closesocket(clientSocket);
 }
 
+extern "C" __declspec(dllexport) BSTR GetConsoleInput(const WCHAR* prompt)
+{
+    std::wstring input;
+    
+    std::wcout << prompt;
+    std::getline(std::wcin, input);
+    
+    return SysAllocString(input.c_str());
+}
+
 extern "C" __declspec(dllexport) bool EstablishConnection(const WCHAR* serverIp, int port)
 {
     if (!InitializeWinsock())
@@ -110,13 +120,13 @@ extern "C" __declspec(dllexport) void ReceiveRoutine()
             iss >> senderName >> filename >> fileSize;
 
             std::string offerPrompt = std::format("Client {} is offering file '{}' ({} bytes). Accept (y/n)? ", senderName, filename, fileSize);
+            std::wstring offerPromptW(offerPrompt.begin(), offerPrompt.end());
 
-            std::string userResponse;
-            {
-                std::lock_guard<std::mutex> lock(consoleInputMutex);
-                std::cout << offerPrompt;
-                std::getline(std::cin, userResponse);
-            }
+            WCHAR* userResponseW = GetConsoleInput(offerPromptW.c_str());
+            std::wstring userResponseWStr(userResponseW);
+
+            delete[] userResponseW;
+            std::string userResponse(userResponseWStr.begin(), userResponseWStr.end());
 
             if (!SendData(clientSocket, userResponse))
             {

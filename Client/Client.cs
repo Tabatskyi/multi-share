@@ -13,19 +13,21 @@ internal class Client
     [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     public static extern bool SendFile(string filename);
 
+    [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.BStr)]
+    public static extern string GetConsoleInput([MarshalAs(UnmanagedType.BStr)] string prompt);
+
     [DllImport("ClientBack.dll", CallingConvention = CallingConvention.Cdecl)]
     public static extern void ReceiveRoutine();
 
     private static readonly string serverIp = "127.0.0.1";
     private static readonly int port = 12345;
-    private static readonly Lock consoleLock = new(); 
 
     static string clientName = "Unknown";
 
     static void Main()
     {
-        Console.Write("Enter your client name:\n> ");
-        clientName = SafeConsoleReadLine() ?? clientName;
+        clientName = GetConsoleInput("Enter your client name:\n> ");
 
         if (!EstablishConnection(serverIp, port))
         {
@@ -68,8 +70,7 @@ internal class Client
     {
         while (true)
         {
-            Console.Write("Enter command (j <roomID>, m <message>, f <filename>, q):\n> ");
-            string input = SafeConsoleReadLine();
+            string input = GetConsoleInput("Enter command (j <roomID>, m <message>, f <filename>, q):\n> ");
             string[] parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 1)
             {
@@ -80,14 +81,6 @@ internal class Client
                     return input;
             }
             Console.WriteLine("Invalid command. Please try again.");
-        }
-    }
-
-    static string SafeConsoleReadLine()
-    {
-        lock (consoleLock)
-        {
-            return Console.ReadLine() ?? "null";
         }
     }
 }
