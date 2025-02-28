@@ -231,12 +231,6 @@ static bool SendFileToStream(const std::string& filename, SOCKET socket)
 
 static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
 {
-    if (!CheckResponse(socket))
-    {
-        std::cerr << "Failed to get valid responce" << std::endl;
-        return false;
-    }
-
     std::ofstream file(filename, std::ios::binary);
     if (!file.is_open())
     {
