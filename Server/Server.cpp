@@ -7,9 +7,6 @@
 
 #pragma comment(lib, "CommunicationLib.lib")  
 
-std::unordered_map<std::string, int> commandStatistics;
-std::mutex statsMutex;
-
 static std::unordered_map<SOCKET, int> clientRooms;
 static std::mutex roomMutex;
 
@@ -65,6 +62,7 @@ static bool BroadcastFile(const std::string& fullFilePath, const std::string& di
 		threads.emplace_back([&fullFilePath, &displayFileName, fileSize, client, &senderClientName]()
 		{
 			std::string offerMsg = std::format("fo {} {} {}", senderClientName, displayFileName, fileSize);
+			std::cout << "Offering file: " << displayFileName << " to client " << client << std::endl;
 			if (!SendData(client, offerMsg))
 				return;
 
@@ -125,7 +123,7 @@ static void HandleClient(SOCKET clientSocket, const std::filesystem::path& serve
 				std::cerr << "Receive failed or connection closed. Error: " << WSAGetLastError() << std::endl;
 				break;
 			}
-			std::cout << "Received command: " << message << std::endl;
+			std::cout << "Received command: " << message << std::endl; 
 			std::istringstream iss(message);
 			std::string command, clientName;
 			iss >> command >> clientName;
