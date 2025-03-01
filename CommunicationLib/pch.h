@@ -8,6 +8,7 @@
 #define PCH_H
 
 // add headers that you want to pre-compile here
+#include <thread>
 #include <vector>
 #include <fstream>
 #include <iostream>
@@ -15,6 +16,7 @@
 #include <WinSock2.h>
 #include <Ws2tcpip.h>
 #include <filesystem>
+#include <unordered_map>
 #include "framework.h"
 
 #endif //PCH_H
