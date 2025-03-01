@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -28,9 +27,9 @@ internal class Client
 
         while (!isQuitting)
         {
-            if (clientSocket is { Available: > 0 })
+            if (clientSocket is { Connected: true, Available: > 0 })
             {
-                ReceiveData();
+                MultiplexReceive();
             }
 
             if (Console.KeyAvailable)
@@ -46,108 +45,55 @@ internal class Client
 
     private static void HandleCommand(string command)
     {
+        // quit
         if (command.StartsWith("q", StringComparison.OrdinalIgnoreCase))
         {
             isQuitting = true;
             return;
         }
 
-        if (command.StartsWith('j') || command.StartsWith('m') || command.StartsWith('f'))
+        // j <roomID>
+        if (command.StartsWith('j'))
         {
-            // add client name to command (j <roomID>, m <message>, f <filename>)
-            string[] parts = command.Split(' ', 2, StringSplitOptions.TrimEntries);
+            var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 2)
             {
-                command = $"{parts[0]} {clientName} {parts[1]}";
+                string payloadString = $"{parts[1]} {clientName}";
+                byte[] payload = Encoding.UTF8.GetBytes(payloadString);
+                SendMultiplexed(0x01, payload);
             }
+            return;
         }
 
-        if (!SendString(command))
+        // m <message>
+        if (command.StartsWith('m'))
         {
-            Console.WriteLine("Error sending command.");
+            string text = command[1..].Trim();
+            byte[] payload = Encoding.UTF8.GetBytes(text);
+            SendMultiplexed(0x02, payload);
+            return;
         }
 
-        if (command.StartsWith("f "))
+        // f <filename>
+        if (command.StartsWith('f'))
         {
-            // "f <clientName> <filename>"
-            string[] parts = command.Split(' ', 3, StringSplitOptions.TrimEntries);
-            if (parts.Length == 3)
+            var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 && File.Exists(parts[1]))
             {
-                if (!SendFile(parts[2]))
-                    Console.WriteLine("Error sending file data.");
-            }
-        }
-    }
-
-    private static void ReceiveData()
-    {
-        try
-        {
-            byte[] lengthBuffer = new byte[sizeof(ulong)];
-            int received = clientSocket!.Receive(lengthBuffer);
-            if (received == 0)
-            {
-                Console.WriteLine("Connection closed.");
-                isQuitting = true;
-                return;
-            }
-
-            if (received != sizeof(ulong))
-            {
-                Console.WriteLine("Incomplete length prefix received.");
-                return;
-            }
-
-            ulong msgLength = BitConverter.ToUInt64(lengthBuffer, 0);
-            byte[] buffer = new byte[msgLength];
-
-            int totalReceived = 0;
-            while (totalReceived < (int)msgLength)
-            {
-                int bytesRead = clientSocket!.Receive(buffer, totalReceived, (int)msgLength - totalReceived, SocketFlags.None);
-                if (bytesRead == 0)
-                {
-                    Console.WriteLine("Connection closed during receive.");
-                    isQuitting = true;
-                    return;
-                }
-                totalReceived += bytesRead;
-            }
-
-            string message = Encoding.UTF8.GetString(buffer);
-            if (message.StartsWith("fo "))
-            {
-                // fo <senderClient> <filename> <fileSize>
-                string[] parts = message.Split(' ', 4, StringSplitOptions.TrimEntries);
-                if (parts.Length == 4)
-                {
-                    Console.WriteLine($"Client {parts[1]} is offering file '{parts[2]}' ({parts[3]} bytes).");
-                    Console.Write("Accept (y/n)?\n> ");
-                    string response = Console.ReadLine() ?? "n";
-
-                    SendString(response);
-                    if (response.Equals("y", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Console.WriteLine($"Receiving file '{parts[2]}'...");
-                        if (!ReceiveFile(parts[2]))
-                            Console.WriteLine("Error receiving file data.");
-                    }
-                    else
-                    {
-                        Console.WriteLine("File transfer declined.");
-                    }
-                }
+                string filename = parts[1];
+                long fileSize = new FileInfo(filename).Length;
+                string payloadString = $"fo {clientName} {filename} {fileSize}";
+                byte[] payload = Encoding.UTF8.GetBytes(payloadString);
+                SendMultiplexed(0x03, payload);
             }
             else
             {
-                Console.WriteLine($"Received message: {message}");
+                Console.WriteLine("File path invalid.");
             }
+            return;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error receiving data: {ex.Message}");
-            isQuitting = true;
-        }
+
+        Console.WriteLine("Unknown command. Use j/m/f/q.");
     }
 
     private static bool EstablishConnection(string serverIp, int port)
@@ -166,57 +112,122 @@ internal class Client
         }
     }
 
-    private static bool SendString(string command)
+    private static bool SendMultiplexed(byte command, byte[] payload)
     {
         try
         {
-            byte[] data = Encoding.UTF8.GetBytes(command);
-            byte[] lengthPrefix = BitConverter.GetBytes((ulong)data.Length);
-            clientSocket!.Send(lengthPrefix);
-            clientSocket.Send(data);
+            int payloadLenNetwork = IPAddress.HostToNetworkOrder(payload.Length);
+            byte[] buffer = new byte[4 + 1 + payload.Length];
+
+            Array.Copy(BitConverter.GetBytes(payloadLenNetwork), 0, buffer, 0, 4);
+            buffer[4] = command;
+            Array.Copy(payload, 0, buffer, 5, payload.Length);
+
+            int totalSent = 0;
+            while (totalSent < buffer.Length)
+            {
+                int sent = clientSocket!.Send(buffer, totalSent, buffer.Length - totalSent, SocketFlags.None);
+                if (sent <= 0)
+                    return false;
+                totalSent += sent;
+            }
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error sending data: {ex.Message}");
+            Console.WriteLine($"Error sending multiplexed data: {ex.Message}");
             return false;
         }
     }
 
-    private static bool SendFile(string filename)
+    private static void MultiplexReceive()
     {
         try
         {
-            if (!File.Exists(filename))
+            while (clientSocket is { Connected: true } && !isQuitting)
             {
-                Console.WriteLine("File not found.");
-                return false;
-            }
+                if (clientSocket.Available < 5)
+                    return; 
 
-            byte[] fileBytes = File.ReadAllBytes(filename);
-            byte[] lengthPrefix = BitConverter.GetBytes((ulong)fileBytes.Length);
+                byte[] lenBytes = new byte[4];
+                int readLen = clientSocket.Receive(lenBytes, 0, 4, SocketFlags.None);
+                if (readLen < 4)
+                    return;
 
-            clientSocket!.Send(lengthPrefix);
+                int networkOrderSize = BitConverter.ToInt32(lenBytes, 0);
+                int payloadSize = IPAddress.NetworkToHostOrder(networkOrderSize);
 
-            int totalSent = 0;
-            while (totalSent < fileBytes.Length)
-            {
-                int sent = clientSocket.Send(fileBytes, totalSent, fileBytes.Length - totalSent, SocketFlags.None);
-                if (sent == 0)
+                byte[] cmdByte = new byte[1];
+                int readCmd = clientSocket.Receive(cmdByte, 0, 1, SocketFlags.None);
+                if (readCmd < 1)
+                    return;
+
+                byte command = cmdByte[0];
+
+                byte[] payload = new byte[payloadSize];
+                int totalReceived = 0;
+                while (totalReceived < payloadSize)
                 {
-                    Console.WriteLine("Connection closed during file sending.");
-                    return false;
+                    int chunk = clientSocket.Receive(payload, totalReceived, payloadSize - totalReceived, SocketFlags.None);
+                    if (chunk <= 0)
+                    {
+                        Console.WriteLine("Server closed connection.");
+                        isQuitting = true;
+                        return;
+                    }
+                    totalReceived += chunk;
                 }
-                totalSent += sent;
-            }
 
-            Console.WriteLine($"File '{filename}' sent ({totalSent} bytes).");
-            return true;
+                HandleIncomingMessage(command, payload);
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error sending file: {ex.Message}");
-            return false;
+            Console.WriteLine($"Error in MultiplexReceive: {ex.Message}");
+            isQuitting = true;
+        }
+    }
+
+    private static void HandleIncomingMessage(byte command, byte[] payload)
+    {
+        switch (command)
+        {
+            case 0x10: // successful join
+            case 0x20: // server prompt/message
+                Console.WriteLine(Encoding.UTF8.GetString(payload));
+                break;
+
+            case 0x03: // file offer
+                {
+                    string message = Encoding.UTF8.GetString(payload);
+                    
+                    if (message.StartsWith("fo ")) // fo <senderClient> <filename> <fileSize>
+                    {
+                        string[] parts = message.Split(' ', 4, StringSplitOptions.TrimEntries);
+                        if (parts.Length == 4)
+                        {
+                            Console.WriteLine($"Client {parts[1]} is offering file '{parts[2]}' ({parts[3]} bytes).");
+                            Console.Write("Accept (y/n)?\n> ");
+                            string response = Console.ReadLine() ?? "n";
+
+                            if (!response.Equals("y", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Console.WriteLine("File declined.");
+                                return;
+                            }
+
+                            Console.WriteLine($"Receiving file '{parts[2]}'...");
+                            if (!ReceiveFile(parts[2]))
+                                Console.WriteLine("Error receiving file data.");
+                        }
+                    }
+                    break;
+                }
+
+            default:
+                string text = Encoding.UTF8.GetString(payload);
+                Console.WriteLine($"Received message: {text}");
+                break;
         }
     }
 
@@ -224,9 +235,8 @@ internal class Client
     {
         try
         {
-            byte[] lengthBuffer = new byte[sizeof(ulong)];
+             byte[] lengthBuffer = new byte[sizeof(ulong)];
             int received = clientSocket!.Receive(lengthBuffer);
-
             if (received == 0)
             {
                 Console.WriteLine("Connection closed.");
@@ -234,7 +244,7 @@ internal class Client
             }
             if (received != sizeof(ulong))
             {
-                Console.WriteLine("Incomplete length prefix received for file.");
+                Console.WriteLine("Incomplete file length prefix received.");
                 return false;
             }
 
@@ -244,7 +254,7 @@ internal class Client
             int totalReceived = 0;
             while (totalReceived < (int)fileLength)
             {
-                int bytesRead = clientSocket!.Receive(fileBuffer, totalReceived, (int)fileLength - totalReceived, SocketFlags.None);
+                int bytesRead = clientSocket.Receive(fileBuffer, totalReceived, (int)fileLength - totalReceived, SocketFlags.None);
                 if (bytesRead == 0)
                 {
                     Console.WriteLine("Connection closed during file reception.");
