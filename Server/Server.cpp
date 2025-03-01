@@ -9,11 +9,13 @@
 static std::mutex responseMutex;
 static std::unordered_map<SOCKET, std::promise<std::string>> responsePromises;
 
-static std::unordered_map<SOCKET, int> clientRooms;
 static std::mutex roomMutex;
+static std::unordered_map<SOCKET, int> clientRooms;
 
-static std::unordered_map<int, std::queue<std::string>> roomMessageQueues;
 static std::unordered_map<int, std::vector<SOCKET>> roomClients;
+static std::unordered_map<int, std::queue<std::string>> roomMessageQueues;
+
+static std::unordered_map<SOCKET, FileTransferState> fileTransfers;
 
 static const unsigned int TIME_OUT_MS = 30000; // 30s
 
@@ -22,7 +24,7 @@ static void BroadcastMessage(const std::string& message, SOCKET senderSocket, Co
 	int roomID = 0;
 	std::vector<SOCKET> clientsInRoom;
 	{
-		std::lock_guard<std::mutex> lk(roomMutex);
+		std::lock_guard<std::mutex> lock(roomMutex);
 		if (clientRooms.find(senderSocket) != clientRooms.end())
 		{
 			roomID = clientRooms[senderSocket];
@@ -35,17 +37,17 @@ static void BroadcastMessage(const std::string& message, SOCKET senderSocket, Co
 	{
 		if (client != senderSocket)
 		{
-			SendData(client, command, message.c_str(), (uint32_t)message.size());
+			SendData(client, command, message.c_str());
 		}
 	}
 }
 
-static bool BroadcastFile(const std::string& fullFilePath, const std::string& displayFileName, size_t fileSize, SOCKET senderSocket, const std::string& senderClientName)
+static bool BroadcastFile(const std::string& filepath, const std::string& filename, size_t fileSize, SOCKET senderSocket, const std::string& senderName)
 {
 	int roomID = 0;
 	std::vector<SOCKET> clientsInRoom;
 	{
-		std::lock_guard<std::mutex> lk(roomMutex);
+		std::lock_guard<std::mutex> lock(roomMutex);
 		if (clientRooms.find(senderSocket) != clientRooms.end())
 		{
 			roomID = clientRooms[senderSocket];
@@ -61,11 +63,11 @@ static bool BroadcastFile(const std::string& fullFilePath, const std::string& di
 		if (client == senderSocket)
 			continue;
 
-		threads.emplace_back([&fullFilePath, &displayFileName, fileSize, client, &senderClientName]()
+		threads.emplace_back([&filepath, &filename, fileSize, client, &senderName]()
 		{
-			std::string offerMsg = std::format("fo {} {} {}", senderClientName, displayFileName, fileSize);
-			std::cout << "Offering file: " << displayFileName << " to client " << client << std::endl;
-			if (!SendData(client, Command::FileOffer, offerMsg.c_str(), (uint32_t)offerMsg.size()))
+			std::string offerMsg = std::format("fo {} {} {}", senderName, filename, fileSize);
+			std::cout << "Offering file: " << filename << " to client " << client << std::endl;
+			if (!SendData(client, Command::FileOffer, offerMsg.c_str()))
 				return;
 
 			std::promise<std::string> promise;
@@ -93,14 +95,14 @@ static bool BroadcastFile(const std::string& fullFilePath, const std::string& di
 
 			if (response == "y")
 			{
-				if (!SendFileToStream(fullFilePath, displayFileName, client))
+				if (!SendFile(filepath, filename, client))
 				{
 					std::cerr << "File transfer failed for client " << client << std::endl;
 				}
 			}
 			else
 			{
-				std::cout << "Client " << client << " rejected file: " << displayFileName << std::endl;
+				std::cout << "Client " << client << " rejected file: " << filename << std::endl;
 			}
 		});
 	}
@@ -111,11 +113,10 @@ static bool BroadcastFile(const std::string& fullFilePath, const std::string& di
 	return true;
 }
 
-
 static void JoinRoom(SOCKET clientSocket, int roomID, std::string clientName)
 {
 	{
-		std::lock_guard<std::mutex> lk(roomMutex);
+		std::lock_guard<std::mutex> lock(roomMutex);
 		if (clientRooms.find(clientSocket) != clientRooms.end())
 		{
 			int oldRoom = clientRooms[clientSocket];
@@ -126,8 +127,7 @@ static void JoinRoom(SOCKET clientSocket, int roomID, std::string clientName)
 		roomClients[roomID].push_back(clientSocket);
 	} 
 
-	std::string joinMsg = std::format("CLIENT {} JOINED ROOM {}", clientName, roomID);
-	BroadcastMessage(joinMsg, clientSocket);
+	BroadcastMessage(std::format("CLIENT {} JOINED ROOM {}", clientName, roomID), clientSocket);
 }
 
 static void HandleMessage(unsigned char command, const std::string& payload, SOCKET clientSocket)
@@ -144,8 +144,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 		if (!clientName.empty())
 		{
 			JoinRoom(clientSocket, roomID, clientName);
-			const char* msg = "Joined room successfully.";
-			SendData(clientSocket, Command::JoinRoomResponse, msg, (uint32_t)strlen(msg));
+			SendData(clientSocket, Command::JoinRoomResponse, "Joined room successfully.");
 		}
 	}
 	break;
@@ -158,8 +157,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 
 		if (!text.empty())
 		{
-			std::string broadcastMsg = std::format("CLIENT {}: {}", clientName, text);
-			BroadcastMessage(broadcastMsg, clientSocket);
+			BroadcastMessage(std::format("CLIENT {}: {}", clientName, text), clientSocket);
 		}
 	}
 	break;
@@ -173,11 +171,9 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 		dataStream >> senderName >> filename >> fileSize;
 		std::string fullFilePath = std::format("ServerFiles/{}/{}", senderName, filename);
 
-		bool success = BroadcastFile(fullFilePath, filename, fileSize, clientSocket, senderName);
-		if (success)
+		if (BroadcastFile(fullFilePath, filename, fileSize, clientSocket, senderName))
 		{
-			const char* completeMsg = "File transfer complete to all clients.";
-			SendData(clientSocket, Command::MessageTextResponse, completeMsg, (uint32_t)strlen(completeMsg));
+			SendData(clientSocket, Command::MessageTextResponse, "File transfer complete to all clients.");
 		}
 	}
 	break;
@@ -190,17 +186,18 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 
 		dataStream >> clientName >> filename >> fileSize;
 		std::string fullFilePath = std::format("ServerFiles/{}/{}", clientName, filename);
+		std::filesystem::create_directory("ServerFiles/" + clientName);
 
-		FileTransferContext ctx;
-		ctx.ofs.open(fullFilePath, std::ios::binary);
-		if (!ctx.ofs)
+		FileTransferState state;
+		state.stream.open(fullFilePath, std::ios::binary);
+		if (!state.stream)
 		{
 			std::cerr << "Failed to open file for writing: " << fullFilePath << std::endl;
 			break;
 		}
-		ctx.expectedSize = fileSize;
-		ctx.received = 0;
-		fileTransfers[clientSocket] = std::move(ctx);
+		state.expectedSize = fileSize;
+		state.received = 0;
+		fileTransfers[clientSocket] = std::move(state);
 	}
 	break;
 
@@ -209,19 +206,19 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 		auto it = fileTransfers.find(clientSocket);
 		if (it != fileTransfers.end())
 		{
-			FileTransferContext& ctx = it->second;
-			ctx.ofs.write(payload.data(), payload.size());
-			ctx.received += payload.size();
-			if (ctx.received >= ctx.expectedSize)
+			FileTransferState& state = it->second;
+			state.stream.write(payload.data(), payload.size());
+			state.received += payload.size();
+			if (state.received >= state.expectedSize)
 			{
-				ctx.ofs.close();
-				std::cout << "File received complete (" << ctx.received << " bytes)" << std::endl;
+				state.stream.close();
+				std::cout << "File received complete (" << state.received << " bytes)" << std::endl;
 				fileTransfers.erase(it);
 			}
 		}
 		else
 		{
-			std::cerr << "Received a file chunk with no transfer context" << std::endl;
+			std::cerr << "Received a file chunk with no transfer state" << std::endl;
 		}
 	}
 	break;
@@ -242,8 +239,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 
 	default:
 	{
-		const char* unknown = "Unknown command.";
-		SendData(clientSocket, Command::Unknown, unknown, (uint32_t)strlen(unknown));
+		SendData(clientSocket, Command::Unknown, "Unknown command.");
 	}
 	break;
 	}

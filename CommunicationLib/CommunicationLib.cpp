@@ -18,9 +18,9 @@ static enum class Command : unsigned char
 	FileOfferResponse = 0x30,
 };
 
-struct FileTransferContext 
+struct FileTransferState
 {
-    std::ofstream ofs;
+    std::ofstream stream;
     size_t expectedSize = 0;
     size_t received = 0;
 };
@@ -31,9 +31,6 @@ struct Message
     std::string payload;
 };
 
-static std::unordered_map<SOCKET, FileTransferContext> fileTransfers;
-
-// Initialize Winsock
 static bool InitializeWinsock()
 {
 	WSADATA wsaData;
@@ -45,7 +42,6 @@ static bool InitializeWinsock()
 	return true;
 }
 
-// Server configuration  
 static SOCKET CreateAndBindSocket(int port, PCWSTR bindIp = nullptr)
 {
     SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -86,34 +82,14 @@ static SOCKET CreateAndBindSocket(int port, PCWSTR bindIp = nullptr)
     return listenSocket;
 }
 
-// Send data
-static bool SendData(SOCKET socket, const std::string& message)
+static bool SendData(SOCKET clientSocket, const Command command, const void* payload, uint32_t payloadSize = 0)
 {
-    size_t messageSize = message.size();
-    if (send(socket, reinterpret_cast<char*>(&messageSize), sizeof(messageSize), 0) == SOCKET_ERROR)
-    {
-        std::cerr << "Failed to send message size: " << WSAGetLastError() << std::endl;
-        return false;
-    }
+	if (payloadSize == 0)
+	{
+		payloadSize = static_cast<uint32_t>(strlen(static_cast<const char*>(payload)));
+	}
 
-    size_t totalSent = 0;
-    const char* dataPtr = message.c_str();
-
-    while (totalSent < message.size())
-    {
-        int bytesSent = send(socket, dataPtr + totalSent, static_cast<int>(message.size() - totalSent), 0);
-        if (bytesSent == SOCKET_ERROR)
-        {
-            std::cerr << "Send failed with error: " << WSAGetLastError() << std::endl;
-            return false;
-        }
-        totalSent += bytesSent;
-    }
-    return true;
-}
-
-static bool SendData(SOCKET clientSocket, const Command command, const void* payload, uint32_t payloadSize)
-{
+	std::cout << "Sending size: " << payloadSize << std::endl;
     uint32_t msgLen = htonl(payloadSize);
     std::vector<char> buffer(sizeof(msgLen) + 1 + payloadSize);
 
@@ -136,7 +112,6 @@ static bool SendData(SOCKET clientSocket, const Command command, const void* pay
     return true;
 }
 
-// Receive data
 static bool ReceiveMessage(SOCKET socket, Message& message)
 {
     const size_t headerSize = sizeof(uint32_t) + 1; 
@@ -169,11 +144,9 @@ static bool ReceiveMessage(SOCKET socket, Message& message)
 
         totalPayloadRead += bytesRead;
     }
-	std::cout << std::format("Received message: {} {}", message.command, message.payload) << std::endl;
     return true;
 }
 
-// Listen for incoming connections 
 static int Listen(SOCKET serverSocket)
 {
     if (listen(serverSocket, SOMAXCONN) == SOCKET_ERROR)
@@ -186,21 +159,20 @@ static int Listen(SOCKET serverSocket)
     return 0;
 }
 
-static bool SendFileToStream(const std::string& filepath, const std::string& filename, SOCKET socket)
+static bool SendFile(const std::string& filepath, const std::string& filename, SOCKET socket)
 {
-    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
+    std::ifstream file(filepath, std::ios::binary);
     if (!file.is_open())
     {
         std::cerr << "ERROR: Failed to open file: " << filepath << std::endl;
         return false;
     }
 
-    std::streamsize fileSize = file.tellg();
-    file.seekg(0, std::ios::beg);
-    size_t fileSizeValue = static_cast<size_t>(fileSize);
+    std::filesystem::path path(filepath);
+    uint32_t fileSizeValue = static_cast<uint32_t>(std::filesystem::file_size(path));
 
-	std::string payload = std::format("{} {}", filename, fileSizeValue);
-    if (!SendData(socket, Command::FileSize, payload.c_str(), (uint32_t)payload.size()))
+    std::string payload = std::format("{} {}", filename, fileSizeValue);
+    if (!SendData(socket, Command::FileSize, payload.c_str()))
     {
         std::cerr << "Failed to send file size message." << std::endl;
         file.close();
@@ -208,71 +180,26 @@ static bool SendFileToStream(const std::string& filepath, const std::string& fil
     }
 
     std::vector<char> buffer(BUFFER_SIZE_BYTES);
-    while (fileSize > 0)
+    while (fileSizeValue > 0)
     {
-        std::streamsize bytesToRead = min(static_cast<std::streamsize>(buffer.size()), fileSize);
+        std::streamsize bytesToRead = min(static_cast<std::streamsize>(buffer.size()), static_cast<std::streamsize>(fileSizeValue));
         if (!file.read(buffer.data(), bytesToRead))
         {
             std::cerr << "Failed to read from file: " << filepath << std::endl;
             file.close();
             return false;
         }
+        std::cout << std::format("Sending: {} {}", (unsigned int)Command::FileChunk, bytesToRead) << std::endl;
         if (!SendData(socket, Command::FileChunk, buffer.data(), static_cast<uint32_t>(bytesToRead)))
         {
             std::cerr << "Failed to send file chunk." << std::endl;
             file.close();
             return false;
         }
-        fileSize -= bytesToRead;
+        fileSizeValue -= bytesToRead;
+        std::cout << "Bytes remaining: " << fileSizeValue << std::endl;
     }
 
-    file.close();
-    return true;
-}
-
-static bool WriteFileFromStream(const std::string& filename, SOCKET socket)
-{
-	std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open())
-    {
-        std::cerr << "ERROR: Failed to create file: " << filename << std::endl;
-        return false;
-    }
-
-    size_t fileSize = 0;
-    int bytesReceived = recv(socket, reinterpret_cast<char*>(&fileSize), sizeof(fileSize), 0);
-    if (bytesReceived != sizeof(fileSize))
-    {
-        std::cerr << "Failed to receive file size." << std::endl;
-        file.close();
-        return false;
-    }
-
-    size_t totalReceived = 0;
-    std::vector<char> buffer(BUFFER_SIZE_BYTES);
-
-    while (totalReceived < fileSize)
-    {
-        int bytesToReceive = static_cast<int>(min(buffer.size(), fileSize - totalReceived));
-        bytesReceived = recv(socket, buffer.data(), bytesToReceive, 0);
-        if (bytesReceived == SOCKET_ERROR)
-        {
-            std::cerr << "Receive failed with error: " << WSAGetLastError() << std::endl;
-            file.close();
-            return false;
-        }
-        else if (bytesReceived == 0)
-        {
-            std::cerr << "Connection closed unexpectedly." << std::endl;
-            file.close();
-            return false;
-        }
-        file.write(buffer.data(), bytesReceived);
-        totalReceived += bytesReceived;
-    }
-
-    std::cout << "File '" << filename << "' received (" << totalReceived << " bytes)" << std::endl;
     file.close();
     return true;
 }

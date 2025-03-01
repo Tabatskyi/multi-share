@@ -7,15 +7,4 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\ClientBack\ClientBack.vcxproj">
-      <Private>True</Private>
-      <ReferenceOutputAssembly>True</ReferenceOutputAssembly>
-    </ProjectReference>
-	<Content Include="..\x64\Debug\ClientBack.dll">
-		<Link>%(Filename)%(Extension)</Link>
-		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	</Content>
-  </ItemGroup>
-
 </Project>

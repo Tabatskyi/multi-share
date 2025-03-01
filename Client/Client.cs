@@ -38,16 +38,17 @@ internal class Client
             return;
         }
 
-        Console.Write("Enter your client name:\n> ");
+        Console.Write("Enter your client name: ");
         clientName = Console.ReadLine() ?? "Unknown";
+
+        Thread receiveThread = new(ReceiveData)
+        {
+            IsBackground = true
+        };
+        receiveThread.Start();
 
         while (!isQuitting)
         {
-            if (clientSocket is { Connected: true, Available: > 0 })
-            {
-                ReceiveData();
-            }
-
             if (Console.KeyAvailable)
             {
                 string command = Console.ReadLine()?.Trim() ?? string.Empty;
@@ -69,7 +70,7 @@ internal class Client
         }
 
         // j <roomID>
-        if (command.StartsWith('j'))
+        else if (command.StartsWith('j'))
         {
             var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 2)
@@ -82,7 +83,7 @@ internal class Client
         }
 
         // m <message>
-        if (command.StartsWith('m'))
+        else if (command.StartsWith('m'))
         {
             string payloadString = $"{clientName} {command[1..].Trim()}";
             byte[] payload = Encoding.UTF8.GetBytes(payloadString);
@@ -91,7 +92,7 @@ internal class Client
         }
 
         // f <filename> 
-        if (command.StartsWith('f'))
+        else if (command.StartsWith('f'))
         {
             var parts = command.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 2 && File.Exists(parts[1]))
@@ -112,6 +113,9 @@ internal class Client
             }
             return;
         }
+
+        else if (command.StartsWith('y') || command.StartsWith('n'))
+            return;
 
         Console.WriteLine("Unknown command. Use j/m/f/q.");
     }
@@ -138,7 +142,6 @@ internal class Client
     // n bytes: payload
     private static bool SendData(Command command, byte[] payload)
     {
-        Console.WriteLine($"Sending command {command} with payload: {Encoding.UTF8.GetString(payload)}");
         try
         {
             int payloadLenNetwork = IPAddress.HostToNetworkOrder(payload.Length);
@@ -171,36 +174,50 @@ internal class Client
         {
             while (clientSocket is { Connected: true } && !isQuitting)
             {
-                if (clientSocket.Available < 5)
-                    return;
-
                 byte[] lenBytes = new byte[4];
-                int readLen = clientSocket.Receive(lenBytes, 0, 4, SocketFlags.None);
-                if (readLen < 4)
-                    return;
-
-                int networkOrderSize = BitConverter.ToInt32(lenBytes, 0);
-                int payloadSize = IPAddress.NetworkToHostOrder(networkOrderSize);
-
-                byte[] cmdByte = new byte[1];
-                int readCmd = clientSocket.Receive(cmdByte, 0, 1, SocketFlags.None);
-                if (readCmd < 1)
-                    return;
-
-                byte command = cmdByte[0];
-
-                byte[] payload = new byte[payloadSize];
-                int totalReceived = 0;
-                while (totalReceived < payloadSize)
+                int totalRead = 0;
+                while (totalRead < 4)
                 {
-                    int chunk = clientSocket.Receive(payload, totalReceived, payloadSize - totalReceived, SocketFlags.None);
-                    if (chunk <= 0)
+                    int read = clientSocket.Receive(lenBytes, totalRead, 4 - totalRead, SocketFlags.None);
+                    if (read <= 0)
                     {
                         Console.WriteLine("Server closed connection.");
                         isQuitting = true;
                         return;
                     }
-                    totalReceived += chunk;
+                    totalRead += read;
+                }
+
+                int networkOrderSize = BitConverter.ToInt32(lenBytes, 0);
+                int payloadSize = IPAddress.NetworkToHostOrder(networkOrderSize);
+
+                byte[] cmdByte = new byte[1];
+                totalRead = 0;
+                while (totalRead < 1)
+                {
+                    int read = clientSocket.Receive(cmdByte, totalRead, 1 - totalRead, SocketFlags.None);
+                    if (read <= 0)
+                    {
+                        Console.WriteLine("Server closed connection.");
+                        isQuitting = true;
+                        return;
+                    }
+                    totalRead += read;
+                }
+                byte command = cmdByte[0];
+
+                byte[] payload = new byte[payloadSize];
+                totalRead = 0;
+                while (totalRead < payloadSize)
+                {
+                    int read = clientSocket.Receive(payload, totalRead, payloadSize - totalRead, SocketFlags.None);
+                    if (read <= 0)
+                    {
+                        Console.WriteLine("Server closed connection during payload read.");
+                        isQuitting = true;
+                        return;
+                    }
+                    totalRead += read;
                 }
 
                 HandleIncomingMessage(command, payload);
@@ -208,7 +225,7 @@ internal class Client
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error in MultiplexReceive: {ex.Message}");
+            Console.WriteLine($"Error in ReceiveData: {ex.Message}");
             isQuitting = true;
         }
     }
@@ -231,7 +248,7 @@ internal class Client
                     if (parts.Length == 4)
                     {
                         Console.WriteLine($"Client {parts[1]} is offering file '{parts[2]}' ({parts[3]} bytes).");
-                        Console.Write("Accept (y/n)?\n> ");
+                        Console.Write("Accept (y/n)? ");
 
                         string response = Console.ReadLine() ?? "n";
                         if (!response.Equals("y", StringComparison.OrdinalIgnoreCase))
@@ -250,7 +267,7 @@ internal class Client
 
             case Command.FileSize:
             {
-                // filename <filesize>
+                // <filename> <filesize>
                 string fileInfo = Encoding.UTF8.GetString(payload);
                 string[] parts = fileInfo.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length == 2 && long.TryParse(parts[1], out long fileSize))
@@ -268,6 +285,7 @@ internal class Client
                         Console.WriteLine($"Cannot open file for writing: {ex.Message}");
                     }
                 }
+                else Console.WriteLine("Invalid file size message.");
                 break;
             }
 
