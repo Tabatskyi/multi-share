@@ -11,7 +11,6 @@ static std::unordered_map<SOCKET, std::promise<std::string>> responsePromises;
 
 static std::mutex roomMutex;
 static std::unordered_map<SOCKET, int> clientRooms;
-
 static std::unordered_map<int, std::vector<SOCKET>> roomClients;
 static std::unordered_map<int, std::queue<std::string>> roomMessageQueues;
 
@@ -71,7 +70,7 @@ static bool BroadcastFile(const std::string& filepath, const std::string& filena
 				return;
 
 			std::promise<std::string> promise;
-			auto futureResponse = promise.get_future();
+			std::future<std::string> futureResponse = promise.get_future();
 			{
 				std::lock_guard<std::mutex> lock(responseMutex);
 				responsePromises[client] = std::move(promise);
@@ -144,20 +143,46 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 		if (!clientName.empty())
 		{
 			JoinRoom(clientSocket, roomID, clientName);
-			SendData(clientSocket, Command::JoinRoomResponse, "Joined room successfully.");
+			SendData(clientSocket, Command::ServerResponse, "Joined room successfully.");
 		}
+	}
+	break;
+
+	case Command::LeaveRoom:
+	{
+		std::string clientName;
+		dataStream >> clientName;
+		{
+			std::lock_guard<std::mutex> lock(roomMutex);
+			if (clientRooms.find(clientSocket) != clientRooms.end())
+			{
+				int roomID = clientRooms[clientSocket];
+				std::vector<SOCKET>& clientsVec = roomClients[roomID];
+				clientsVec.erase(std::remove(clientsVec.begin(), clientsVec.end(), clientSocket), clientsVec.end());
+				clientRooms.erase(clientSocket);
+			}
+		}
+		SendData(clientSocket, Command::ServerResponse, "Left room successfully.");
+		BroadcastMessage(std::format("CLIENT {} LEFT ROOM", clientName), clientSocket);
 	}
 	break;
 
 	case Command::MessageText:
 	{
+		if (clientRooms.find(clientSocket) == clientRooms.end())
+		{
+			SendData(clientSocket, Command::Error, "You must join a room before sending messages.");
+			break;
+		}
+
 		std::string clientName;
 		std::string text;
-		dataStream >> clientName >> text;
+		dataStream >> clientName;
+		std::getline(dataStream, text);
 
 		if (!text.empty())
 		{
-			BroadcastMessage(std::format("CLIENT {}: {}", clientName, text), clientSocket);
+			BroadcastMessage(std::format("CLIENT {}:{}", clientName, text), clientSocket);
 		}
 	}
 	break;
@@ -239,7 +264,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 
 	default:
 	{
-		SendData(clientSocket, Command::Unknown, "Unknown command.");
+		SendData(clientSocket, Command::Error, "Unknown command.");
 	}
 	break;
 	}

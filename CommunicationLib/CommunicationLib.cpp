@@ -7,13 +7,14 @@ static const size_t BUFFER_SIZE_BYTES = 1024;
 
 static enum class Command : unsigned char
 {
-	Unknown = 0xFF,
+	Error = 0xFF,
 	JoinRoom = 0x01,
+	LeaveRoom = 0x11,
 	MessageText = 0x02,
 	FileOffer = 0x03,
 	FileSize = 0x04,
 	FileChunk = 0x05,
-	JoinRoomResponse = 0x10,
+	ServerResponse = 0x10,
 	MessageTextResponse = 0x20,
 	FileOfferResponse = 0x30,
 };
@@ -89,7 +90,6 @@ static bool SendData(SOCKET clientSocket, const Command command, const void* pay
 		payloadSize = static_cast<uint32_t>(strlen(static_cast<const char*>(payload)));
 	}
 
-	std::cout << "Sending size: " << payloadSize << std::endl;
     uint32_t msgLen = htonl(payloadSize);
     std::vector<char> buffer(sizeof(msgLen) + 1 + payloadSize);
 

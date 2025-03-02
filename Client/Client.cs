@@ -21,11 +21,12 @@ internal class Client
     {
         Unknown = 0xFF,
         JoinRoom = 0x01,
+        LeaveRoom = 0x11,
         MessageText = 0x02,
         FileOffer = 0x03,
         FileSize = 0x04,
         FileChunk = 0x05,
-        JoinRoomResponse = 0x10,
+        ServerResponse = 0x10,
         MessageTextResponse = 0x20,
         FileOfferResponse = 0x30,
     }
@@ -114,10 +115,17 @@ internal class Client
             return;
         }
 
+        // exit room
+        else if (command.StartsWith('l'))
+        {
+            SendData(Command.LeaveRoom, Encoding.UTF8.GetBytes(clientName));
+            return;
+        }
+
         else if (command.StartsWith('y') || command.StartsWith('n'))
             return;
 
-        Console.WriteLine("Unknown command. Use j/m/f/q.");
+        Console.WriteLine("Unknown command. Use j/m/f/l/q.");
     }
 
     private static bool EstablishConnection(string serverIp, int port)
@@ -163,7 +171,7 @@ internal class Client
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error sending multiplexed data: {ex.Message}");
+            Console.WriteLine($"Error sending data: {ex.Message}");
             return false;
         }
     }
@@ -234,7 +242,7 @@ internal class Client
     {
         switch ((Command)command)
         {
-            case Command.JoinRoomResponse:
+            case Command.ServerResponse:
             case Command.MessageTextResponse:
                 Console.WriteLine(Encoding.UTF8.GetString(payload));
                 break;
