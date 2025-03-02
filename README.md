@@ -1,5 +1,4 @@
 # PCSP Assignment 6 chat application
-
 ## 1. General System Description
 In general, architecture is the same as in previous assignments except that the Client is now written completely on C#. 
 It may be an impulsive decision, and I may sometimes regret doing so, but it’s too late for rollback. 
@@ -22,9 +21,9 @@ q - quit the application <br>
 ![screenshot](resources/screenshot1.png)
 
 ## 4. Explanation of Different Use Cases
-![JoinRoomUML](resources/JoinRoom.drawio.svg)
-![MessageUML](resources/Message.drawio.svg)
-![SendFileUML](resources/FileSharing.drawio.svg)
+![JoinRoomUML](resources/JoinRoom.drawio.svg) <br>
+![MessageUML](resources/Message.drawio.svg) <br>
+![SendFileUML](resources/FileSharing.drawio.svg) <br>
 
 ## 5. Appendices
 https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/sockets/socket-services <br>
