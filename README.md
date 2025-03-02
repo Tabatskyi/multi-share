@@ -5,7 +5,8 @@ In general, architecture is the same as in previous assignments except that the 
 It may be an impulsive decision, and I may sometimes regret doing so, but it’s too late for rollback. 
 Client implementation involves one thread for taking user input and sending messages and another for taking incoming connections. 
 Furthermore, I have changed the protocol a bit. 
-When dealing with file offer confirmation std::promise comes in handy.
+When dealing with file offer confirmation std::promise and std::future come in handy because the get() method of std::future will block the thread until the std::promise sets the value. 
+This is exactly how confirmation behaviour should work. 
 ## 2. Application Protocol Description
 protocol now follows this scheme: <br>
 4-bit length of payload <br>
