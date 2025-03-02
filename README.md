@@ -4,16 +4,16 @@
 In general, architecture is the same as in previous assignments except that the Client is now written completely on C#. 
 It may be an impulsive decision, and I may sometimes regret doing so, but it’s too late for rollback. 
 Client implementation involves one thread for taking user input and sending messages and another for taking incoming connections. 
-Furthermore, I have changed the protocol a bit.
+Furthermore, I have changed the protocol a bit. For file offer confirmation very handy was std::promises
 ## 2. Application Protocol Description
 protocol now follows this scheme: <br>
 4-bit length of payload <br>
 1-bit command (e. g. 0x02 for messaging) <br>
 n-bit payload (content varies depending on the command and who sends it) <br>
 available user commands:<br>
-j <roomID> - join to room <br>
-m <any text> - message to room <br>
-f <filename> - send file to room <br>
+j roomID - join to room <br>
+m any text - message to room <br>
+f filename - send file to room <br>
 l - leave the room <br>
 q - quit the application <br>
 ## 3. Screenshots of Different Use Cases
