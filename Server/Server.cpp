@@ -152,6 +152,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 	{
 		std::string clientName;
 		dataStream >> clientName;
+		BroadcastMessage(std::format("CLIENT {} LEFT ROOM", clientName), clientSocket);
 		{
 			std::lock_guard<std::mutex> lock(roomMutex);
 			if (clientRooms.find(clientSocket) != clientRooms.end())
@@ -163,7 +164,6 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 			}
 		}
 		SendData(clientSocket, Command::ServerResponse, "Left room successfully.");
-		BroadcastMessage(std::format("CLIENT {} LEFT ROOM", clientName), clientSocket);
 	}
 	break;
 
@@ -282,6 +282,7 @@ static void HandleClient(SOCKET clientSocket)
 				std::cerr << "Failed to receive complete message or connection closed.\n";
 				break;
 			}
+			std::cout << "Received message: 0x" << std::setfill('0') << std::setw(2) << std::hex << (int)message.command << " " << message.payload << std::endl;
 			HandleMessage(message.command, message.payload, clientSocket);
 		}
 	}

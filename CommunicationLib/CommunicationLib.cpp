@@ -189,7 +189,6 @@ static bool SendFile(const std::string& filepath, const std::string& filename, S
             file.close();
             return false;
         }
-        std::cout << std::format("Sending: {} {}", (unsigned int)Command::FileChunk, bytesToRead) << std::endl;
         if (!SendData(socket, Command::FileChunk, buffer.data(), static_cast<uint32_t>(bytesToRead)))
         {
             std::cerr << "Failed to send file chunk." << std::endl;
@@ -197,7 +196,6 @@ static bool SendFile(const std::string& filepath, const std::string& filename, S
             return false;
         }
         fileSizeValue -= bytesToRead;
-        std::cout << "Bytes remaining: " << fileSizeValue << std::endl;
     }
 
     file.close();

@@ -19,17 +19,12 @@ f filename - send file to room <br>
 l - leave the room <br>
 q - quit the application <br>
 ## 3. Screenshots of Different Use Cases
-- Join Room
-- Exit Room
-- Client Force Close
-- Send File
-- Accept File
-- Decline File
-- Change Room
+![screenshot](resources/screenshot1.png)
 
 ## 4. Explanation of Different Use Cases
 ![JoinRoomUML](resources/JoinRoom.drawio.svg)
 ![MessageUML](resources/Message.drawio.svg)
+![SendFileUML](resources/FileSharing.drawio.svg)
 
 ## 5. Appendices
 https://learn.microsoft.com/en-us/dotnet/fundamentals/networking/sockets/socket-services <br>
