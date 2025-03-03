@@ -41,7 +41,7 @@ static void BroadcastMessage(const std::string& message, SOCKET senderSocket, Co
 	}
 }
 
-static bool BroadcastFile(const std::string& filepath, const std::string& filename, size_t fileSize, SOCKET senderSocket, const std::string& senderName)
+static bool BroadcastFile(const std::string& filepath, const std::string& filename, uint64_t fileSize, SOCKET senderSocket, const std::string& senderName)
 {
 	int roomID = 0;
 	std::vector<SOCKET> clientsInRoom;
@@ -192,7 +192,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 		std::string command;
 		dataStream >> command;
 		std::string senderName, filename;
-		size_t fileSize = 0;
+		uint64_t fileSize = 0;
 		dataStream >> senderName >> filename >> fileSize;
 		std::string fullFilePath = std::format("ServerFiles/{}/{}", senderName, filename);
 
@@ -207,7 +207,7 @@ static void HandleMessage(unsigned char command, const std::string& payload, SOC
 	{
 		std::string filename;
 		std::string clientName;
-		size_t fileSize = 0;
+		uint64_t fileSize = 0;
 
 		dataStream >> clientName >> filename >> fileSize;
 		std::string fullFilePath = std::format("ServerFiles/{}/{}", clientName, filename);

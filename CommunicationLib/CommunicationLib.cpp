@@ -3,7 +3,7 @@
 
 #pragma comment(lib, "ws2_32.lib")  
 
-static const size_t BUFFER_SIZE_BYTES = 1024;
+static const uint64_t BUFFER_SIZE_BYTES = 1024;
 
 static enum class Command : unsigned char
 {
@@ -22,8 +22,8 @@ static enum class Command : unsigned char
 struct FileTransferState
 {
     std::ofstream stream;
-    size_t expectedSize = 0;
-    size_t received = 0;
+    uint64_t expectedSize = 0;
+    uint64_t received = 0;
 };
 
 struct Message
@@ -114,7 +114,7 @@ static bool SendData(SOCKET clientSocket, const Command command, const void* pay
 
 static bool ReceiveMessage(SOCKET socket, Message& message)
 {
-    const size_t headerSize = sizeof(uint32_t) + 1; 
+    const uint64_t headerSize = sizeof(uint32_t) + 1; 
     char header[5]{};
     int totalHeaderRead = 0;
     int bytesRead = 0;
